@@ -418,7 +418,7 @@ pub fn analyze_path_patterns(working_dirs: &[String]) -> (Vec<PathPattern>, bool
 
     // Find the most specific prefix that covers most occurrences
     let total_count = working_dirs.len();
-    let mut patterns: Vec<PathPattern> = prefix_counts
+    let mut candidates: Vec<(String, PathPattern)> = prefix_counts
         .into_iter()
         .filter(|(_, count)| {
             #[allow(clippy::cast_precision_loss)]
@@ -427,33 +427,40 @@ pub fn analyze_path_patterns(working_dirs: &[String]) -> (Vec<PathPattern>, bool
         })
         .map(|(prefix, count)| {
             let is_project_dir = is_likely_project_dir(&prefix);
-            PathPattern {
-                pattern: prefix,
-                occurrence_count: count,
-                is_project_dir,
-            }
+            let pattern = path_allowlist_pattern(&prefix, working_dirs);
+            (
+                prefix,
+                PathPattern {
+                    pattern,
+                    occurrence_count: count,
+                    is_project_dir,
+                },
+            )
         })
         .collect();
 
     // Sort by occurrence count (descending) then by specificity (longer = more specific)
-    patterns.sort_by(|a, b| {
+    candidates.sort_by(|(a_prefix, a), (b_prefix, b)| {
         b.occurrence_count
             .cmp(&a.occurrence_count)
-            .then_with(|| b.pattern.len().cmp(&a.pattern.len()))
+            .then_with(|| b_prefix.len().cmp(&a_prefix.len()))
     });
 
     // Deduplicate: keep only the most specific pattern for each coverage level
     let mut seen_prefixes: HashSet<String> = HashSet::new();
-    patterns.retain(|p| {
+    candidates.retain(|(prefix, _)| {
         // Skip if a more specific pattern with similar coverage exists
         for seen in &seen_prefixes {
-            if p.pattern.starts_with(seen.as_str()) || seen.starts_with(&p.pattern) {
+            if prefix.starts_with(seen.as_str()) || seen.starts_with(prefix) {
                 return false;
             }
         }
-        seen_prefixes.insert(p.pattern.clone());
+        seen_prefixes.insert(prefix.clone());
         true
     });
+
+    let mut patterns: Vec<PathPattern> =
+        candidates.into_iter().map(|(_, pattern)| pattern).collect();
 
     // Take top 3 patterns
     patterns.truncate(3);
@@ -466,6 +473,20 @@ pub fn analyze_path_patterns(working_dirs: &[String]) -> (Vec<PathPattern>, bool
     });
 
     (patterns, suggest_path_specific)
+}
+
+/// Convert a common directory prefix into an allowlist path pattern.
+fn path_allowlist_pattern(prefix: &str, working_dirs: &[String]) -> String {
+    let prefix_with_sep = format!("{prefix}/");
+    let has_descendants = working_dirs
+        .iter()
+        .any(|dir| dir != prefix && dir.starts_with(&prefix_with_sep));
+
+    if has_descendants {
+        format!("{prefix}/*")
+    } else {
+        prefix.to_string()
+    }
 }
 
 /// Check if a path is likely a project directory.

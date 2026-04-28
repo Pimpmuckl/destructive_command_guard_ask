@@ -126,6 +126,40 @@ fn generate_enhanced_suggestions_clustered_paths() {
 }
 
 #[test]
+fn generate_enhanced_suggestions_sibling_project_path_glob() {
+    let entries = vec![
+        CommandEntryInfo {
+            command: "npm run build".to_string(),
+            working_dir: "/home/dev/projects/app1".to_string(),
+            was_bypassed: false,
+        },
+        CommandEntryInfo {
+            command: "npm run build".to_string(),
+            working_dir: "/home/dev/projects/app2".to_string(),
+            was_bypassed: false,
+        },
+        CommandEntryInfo {
+            command: "npm run build".to_string(),
+            working_dir: "/home/dev/projects/app3".to_string(),
+            was_bypassed: false,
+        },
+    ];
+
+    let suggestions = generate_enhanced_suggestions(&entries, 3);
+
+    assert_eq!(suggestions.len(), 1);
+    assert!(suggestions[0].suggest_path_specific);
+    assert!(
+        suggestions[0]
+            .path_patterns
+            .iter()
+            .any(|p| p.pattern == "/home/dev/projects/*"),
+        "expected sibling project glob, got {:?}",
+        suggestions[0].path_patterns
+    );
+}
+
+#[test]
 fn generate_enhanced_suggestions_scattered_paths() {
     // Use truly scattered paths with no common prefix
     let scattered_paths = [

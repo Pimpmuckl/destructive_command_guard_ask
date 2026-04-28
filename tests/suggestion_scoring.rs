@@ -497,6 +497,40 @@ fn analyze_path_patterns_common_prefix() {
 }
 
 #[test]
+fn analyze_path_patterns_common_project_parent_glob() {
+    let dirs = vec![
+        "/home/dev/projects/app1".to_string(),
+        "/home/dev/projects/app2".to_string(),
+        "/home/dev/projects/app3".to_string(),
+    ];
+
+    let (patterns, suggest_path_specific) = analyze_path_patterns(&dirs);
+
+    assert!(suggest_path_specific);
+    assert!(
+        patterns.iter().any(|p| p.pattern == "/home/dev/projects/*"),
+        "expected a sibling-project glob, got {patterns:?}"
+    );
+}
+
+#[test]
+fn analyze_path_patterns_repeated_directory_stays_exact() {
+    let dirs = vec![
+        "/data/projects/myapp".to_string(),
+        "/data/projects/myapp".to_string(),
+        "/data/projects/myapp".to_string(),
+    ];
+
+    let (patterns, suggest_path_specific) = analyze_path_patterns(&dirs);
+
+    assert!(suggest_path_specific);
+    assert!(
+        patterns.iter().any(|p| p.pattern == "/data/projects/myapp"),
+        "expected exact repeated directory, got {patterns:?}"
+    );
+}
+
+#[test]
 fn analyze_path_patterns_project_dir_detection() {
     let dirs = vec![
         "/home/user/workspace/project".to_string(),
