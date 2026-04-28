@@ -3350,4 +3350,199 @@ mod tests {
             errors.join("\n\n")
         );
     }
+
+    mod pack_enable_disable_plumbing {
+        use super::*;
+        use std::collections::HashSet;
+
+        #[test]
+        fn core_not_in_expand_when_not_explicitly_enabled() {
+            let enabled: HashSet<String> = HashSet::new();
+            let ordered = REGISTRY.expand_enabled_ordered(&enabled);
+            assert!(
+                !ordered.iter().any(|id| id.starts_with("core")),
+                "core packs should NOT be in expand_enabled_ordered when not in enabled set \
+                 (core is added by PacksConfig::enabled_pack_ids, not by expand_enabled)"
+            );
+        }
+
+        #[test]
+        fn category_expands_to_all_subpacks() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database".to_string());
+            let expanded = REGISTRY.expand_enabled(&enabled);
+            assert!(expanded.contains("database.postgresql"));
+            assert!(expanded.contains("database.redis"));
+            assert!(expanded.contains("database.mongodb"));
+            assert!(expanded.contains("database.sqlite"));
+            assert!(
+                !expanded.contains("containers.docker"),
+                "database category should not include containers packs"
+            );
+        }
+
+        #[test]
+        fn specific_subpack_only_enables_that_pack() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database.postgresql".to_string());
+            let expanded = REGISTRY.expand_enabled(&enabled);
+            assert!(expanded.contains("database.postgresql"));
+            assert!(
+                !expanded.contains("database.redis"),
+                "enabling database.postgresql should not enable database.redis"
+            );
+        }
+
+        #[test]
+        fn duplicate_enabled_entries_deduplicated() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database".to_string());
+            enabled.insert("database.postgresql".to_string());
+            let expanded = REGISTRY.expand_enabled(&enabled);
+            let ordered = REGISTRY.expand_enabled_ordered(&expanded);
+            let pg_count = ordered
+                .iter()
+                .filter(|id| *id == "database.postgresql")
+                .count();
+            assert_eq!(pg_count, 1, "postgresql should appear exactly once");
+        }
+
+        #[test]
+        fn nonexistent_pack_id_filtered_from_ordered() {
+            let mut enabled = HashSet::new();
+            enabled.insert("nonexistent.fake_pack".to_string());
+            let ordered = REGISTRY.expand_enabled_ordered(&enabled);
+            assert!(
+                !ordered.contains(&"nonexistent.fake_pack".to_string()),
+                "non-existent pack IDs should be filtered from ordered results"
+            );
+        }
+
+        #[test]
+        fn keywords_collected_only_from_enabled_packs() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database.postgresql".to_string());
+            let keywords = REGISTRY.collect_enabled_keywords(&enabled);
+            assert!(
+                keywords.contains(&"psql"),
+                "postgresql keywords should include psql"
+            );
+            assert!(
+                keywords.contains(&"dropdb"),
+                "postgresql keywords should include dropdb"
+            );
+            assert!(
+                !keywords.contains(&"redis-cli"),
+                "redis keywords should not be present when only postgresql is enabled"
+            );
+        }
+
+        #[test]
+        fn keywords_deduplicated_across_packs() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database".to_string());
+            let keywords = REGISTRY.collect_enabled_keywords(&enabled);
+            let dup_count = keywords
+                .iter()
+                .filter(|&&k| keywords.iter().filter(|&&k2| k == k2).count() > 1)
+                .count();
+            assert_eq!(dup_count, 0, "keywords should be deduplicated");
+        }
+
+        #[test]
+        fn empty_enabled_set_produces_no_keywords() {
+            let enabled: HashSet<String> = HashSet::new();
+            let keywords = REGISTRY.collect_enabled_keywords(&enabled);
+            assert!(
+                keywords.is_empty(),
+                "no keywords should be collected when no packs are enabled"
+            );
+        }
+
+        #[test]
+        fn keyword_index_built_from_enabled_packs() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database.postgresql".to_string());
+            let ordered = REGISTRY.expand_enabled_ordered(&enabled);
+            let index = REGISTRY.build_enabled_keyword_index(&ordered);
+            assert!(
+                index.is_some(),
+                "keyword index should be built for non-empty enabled set"
+            );
+        }
+
+        #[test]
+        fn expand_enabled_ordered_deterministic() {
+            let mut enabled = HashSet::new();
+            enabled.insert("database".to_string());
+            enabled.insert("containers".to_string());
+            enabled.insert("core".to_string());
+
+            let run1 = REGISTRY.expand_enabled_ordered(&enabled);
+            let run2 = REGISTRY.expand_enabled_ordered(&enabled);
+            assert_eq!(run1, run2, "ordering should be deterministic");
+        }
+
+        #[test]
+        fn tier_ordering_core_before_database() {
+            let mut enabled = HashSet::new();
+            enabled.insert("core".to_string());
+            enabled.insert("database".to_string());
+            let ordered = REGISTRY.expand_enabled_ordered(&enabled);
+
+            let core_pos = ordered.iter().position(|id| id.starts_with("core."));
+            let db_pos = ordered.iter().position(|id| id.starts_with("database."));
+            if let (Some(c), Some(d)) = (core_pos, db_pos) {
+                assert!(
+                    c < d,
+                    "core packs (tier 1) should come before database packs (tier 7)"
+                );
+            }
+        }
+
+        #[test]
+        fn packs_in_category_returns_subpacks() {
+            let db_packs = REGISTRY.packs_in_category("database");
+            assert!(
+                db_packs.contains(&"database.postgresql"),
+                "database category should contain postgresql"
+            );
+            assert!(
+                db_packs.contains(&"database.redis"),
+                "database category should contain redis"
+            );
+        }
+
+        #[test]
+        fn packs_in_nonexistent_category_returns_empty() {
+            let packs = REGISTRY.packs_in_category("nonexistent_category");
+            assert!(packs.is_empty());
+        }
+
+        #[test]
+        fn all_registered_packs_have_nonempty_keywords() {
+            for entry in &PACK_ENTRIES {
+                assert!(
+                    !entry.keywords.is_empty(),
+                    "pack {} has no keywords — it can never be activated",
+                    entry.id
+                );
+            }
+        }
+
+        #[test]
+        fn all_registered_packs_instantiate_successfully() {
+            for entry in &PACK_ENTRIES {
+                let pack = REGISTRY.get(entry.id);
+                assert!(
+                    pack.is_some(),
+                    "pack {} should be retrievable from registry",
+                    entry.id
+                );
+                let pack = pack.unwrap();
+                assert_eq!(pack.id, entry.id);
+                assert!(!pack.name.is_empty());
+            }
+        }
+    }
 }
