@@ -16,6 +16,7 @@ use rich_rust::style::Style;
 use super::theme::{BorderStyle, Theme};
 use crate::evaluator::EvaluationDecision;
 use crate::trace::{ExplainTrace, MatchInfo, PackSummary, TraceDetails, TraceStep};
+use std::collections::BTreeMap;
 
 /// Guide style for tree rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -29,6 +30,49 @@ pub enum DcgTreeGuides {
     Bold,
     /// Rounded Unicode characters for softer appearance.
     Rounded,
+}
+
+/// A pack row formatted for tree rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackTreeItem {
+    /// Stable pack ID, for example `core.git`.
+    pub id: String,
+    /// Human-readable pack name.
+    pub name: String,
+    /// Top-level category, for example `core`.
+    pub category: String,
+    /// Human-readable description.
+    pub description: String,
+    /// Whether this pack is enabled.
+    pub enabled: bool,
+    /// Safe pattern count.
+    pub safe_pattern_count: usize,
+    /// Destructive pattern count.
+    pub destructive_pattern_count: usize,
+}
+
+impl PackTreeItem {
+    /// Create a pack tree item.
+    #[must_use]
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        category: impl Into<String>,
+        description: impl Into<String>,
+        enabled: bool,
+        safe_pattern_count: usize,
+        destructive_pattern_count: usize,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            category: category.into(),
+            description: description.into(),
+            enabled,
+            safe_pattern_count,
+            destructive_pattern_count,
+        }
+    }
 }
 
 impl DcgTreeGuides {
@@ -784,6 +828,58 @@ fn suggestions_node(trace: &ExplainTrace) -> Option<TreeNode> {
     )
 }
 
+/// Build the rich/plain tree used by `dcg packs`.
+#[must_use]
+pub fn pack_list_tree(items: &[PackTreeItem], verbose: bool) -> DcgTree {
+    let mut by_category: BTreeMap<&str, Vec<&PackTreeItem>> = BTreeMap::new();
+    for item in items {
+        by_category
+            .entry(item.category.as_str())
+            .or_default()
+            .push(item);
+    }
+
+    let mut root = TreeNode::new("Available Packs");
+
+    if by_category.is_empty() {
+        root = root.child(TreeNode::new("No packs to display").styled("[dim]"));
+    } else {
+        for (category, mut packs) in by_category {
+            packs.sort_by(|left, right| left.id.cmp(&right.id));
+            root = root.child(
+                TreeNode::new(category)
+                    .styled("[bold]")
+                    .children(packs.into_iter().map(|pack| pack_tree_node(pack, verbose))),
+            );
+        }
+    }
+
+    root = root.child(
+        TreeNode::new("Legend")
+            .styled("[dim]")
+            .child(TreeNode::new("● = enabled"))
+            .child(TreeNode::new("○ = disabled"))
+            .child(TreeNode::new("Enable packs in ~/.config/dcg/config.toml")),
+    );
+
+    DcgTree::new(root).guides(DcgTreeGuides::Rounded)
+}
+
+fn pack_tree_node(pack: &PackTreeItem, verbose: bool) -> TreeNode {
+    let status = if pack.enabled { "●" } else { "○" };
+    let style = if pack.enabled { "[green]" } else { "[dim]" };
+    let label = if verbose {
+        format!(
+            "{} - {} ({} safe, {} destructive)",
+            pack.id, pack.description, pack.safe_pattern_count, pack.destructive_pattern_count
+        )
+    } else {
+        format!("{} - {}", pack.id, pack.name)
+    };
+
+    TreeNode::with_icon(status, label).styled(style)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1089,5 +1185,70 @@ mod tests {
         assert!(output.contains("full_evaluation (1.00ms)"));
         assert!(output.contains("matched: core.git"));
         assert!(output.contains("Skipped (keyword gating): core.filesystem"));
+    }
+
+    #[test]
+    fn test_pack_list_tree_groups_packs_by_category() {
+        let items = vec![
+            PackTreeItem::new(
+                "database.postgresql",
+                "PostgreSQL",
+                "database",
+                "Protects PostgreSQL operations",
+                false,
+                2,
+                5,
+            ),
+            PackTreeItem::new(
+                "core.git",
+                "Git",
+                "core",
+                "Protects Git operations",
+                true,
+                3,
+                8,
+            ),
+        ];
+
+        let lines = pack_list_tree(&items, false)
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("Available Packs"));
+        assert!(output.contains("core"));
+        assert!(output.contains("● core.git - Git"));
+        assert!(output.contains("database"));
+        assert!(output.contains("○ database.postgresql - PostgreSQL"));
+        assert!(output.contains("Legend"));
+    }
+
+    #[test]
+    fn test_pack_list_tree_verbose_includes_pattern_counts() {
+        let items = vec![PackTreeItem::new(
+            "core.filesystem",
+            "Filesystem",
+            "core",
+            "Protects filesystem operations",
+            true,
+            4,
+            7,
+        )];
+
+        let lines = pack_list_tree(&items, true).render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("core.filesystem - Protects filesystem operations"));
+        assert!(output.contains("(4 safe, 7 destructive)"));
+    }
+
+    #[test]
+    fn test_pack_list_tree_empty() {
+        let lines = pack_list_tree(&[], false).render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("Available Packs"));
+        assert!(output.contains("No packs to display"));
+        assert!(output.contains("Legend"));
     }
 }

@@ -2507,7 +2507,7 @@ fn list_packs(
     // Rich output when feature enabled
     #[cfg(feature = "rich-output")]
     {
-        list_packs_rich(config, enabled_only, verbose);
+        list_packs_rich(&pack_list, verbose);
     }
 
     // Pretty output (default, non-rich fallback)
@@ -2556,85 +2556,25 @@ fn list_packs(
 
 /// Rich terminal packs output using DcgConsole and markup.
 #[cfg(feature = "rich-output")]
-fn list_packs_rich(config: &Config, enabled_only: bool, verbose: bool) {
-    use crate::output::console::console;
+fn list_packs_rich(pack_list: &[PackInfo], verbose: bool) {
+    let tree_items: Vec<_> = pack_list
+        .iter()
+        .map(|info| {
+            crate::output::PackTreeItem::new(
+                &info.id,
+                &info.name,
+                &info.category,
+                &info.description,
+                info.enabled,
+                info.safe_pattern_count,
+                info.destructive_pattern_count,
+            )
+        })
+        .collect();
 
-    let con = console();
-    let enabled_packs = config.enabled_pack_ids();
-    let infos = REGISTRY.list_packs(&enabled_packs);
-
-    // Header
-    con.rule(Some("[bold cyan] Available Packs [/]"));
-    con.print("");
-
-    // Group built-in packs by category
-    let mut by_category: std::collections::BTreeMap<&str, Vec<_>> =
-        std::collections::BTreeMap::new();
-    for info in &infos {
-        let category = info.id.split('.').next().unwrap_or(&info.id);
-        by_category.entry(category).or_default().push(info);
-    }
-
-    for (category, packs) in &by_category {
-        con.print(&format!("[bold]{category}[/]:"));
-        for info in packs {
-            if enabled_only && !info.enabled {
-                continue;
-            }
-
-            let (status, color) = if info.enabled {
-                ("●", "green")
-            } else {
-                ("○", "dim")
-            };
-
-            if verbose {
-                con.print(&format!(
-                    "  [{color}]{status}[/] [bold]{id}[/] - {desc} [dim]({safe} safe, {destr} destructive)[/]",
-                    id = info.id,
-                    desc = info.description,
-                    safe = info.safe_pattern_count,
-                    destr = info.destructive_pattern_count
-                ));
-            } else {
-                con.print(&format!(
-                    "  [{color}]{status}[/] [bold]{id}[/] - {name}",
-                    id = info.id,
-                    name = info.name
-                ));
-            }
-        }
-        con.print("");
-    }
-
-    // Display external packs from custom_paths
-    if let Some(external_store) = get_external_packs() {
-        let external_packs: Vec<_> = external_store.iter_packs().collect();
-        if !external_packs.is_empty() {
-            con.print("[bold magenta]custom[/]:");
-            for (id, pack) in &external_packs {
-                // External packs loaded via custom_paths are always enabled
-                let (status, color) = ("●", "green");
-                if verbose {
-                    con.print(&format!(
-                        "  [{color}]{status}[/] [bold]{id}[/] - {desc} [dim]({safe} safe, {destr} destructive)[/]",
-                        desc = pack.description,
-                        safe = pack.safe_patterns.len(),
-                        destr = pack.destructive_patterns.len()
-                    ));
-                } else {
-                    con.print(&format!(
-                        "  [{color}]{status}[/] [bold]{id}[/] - {name}",
-                        name = pack.name
-                    ));
-                }
-            }
-            con.print("");
-        }
-    }
-
-    con.print("[dim]Legend: [green]●[/] = enabled, ○ = disabled[/]");
-    con.print("[dim]Enable packs in ~/.config/dcg/config.toml[/]");
+    crate::output::pack_list_tree(&tree_items, verbose)
+        .with_theme(&crate::output::auto_theme())
+        .render();
 }
 
 /// Show detailed information about a pack

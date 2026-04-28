@@ -41,7 +41,10 @@ pub use rich_theme::{RichThemeExt, color_to_markup, severity_badge_markup, sever
 pub use tables::{ScanResultRow, ScanResultsTable, TableStyle};
 pub use test::{AllowedReason, TestOutcome, TestResultBox};
 pub use theme::{BorderStyle, Severity, SeverityColors, Theme, ThemePalette};
-pub use tree::{DcgTree, DcgTreeGuides, ExplainTreeBuilder, TreeNode, explain_trace_tree};
+pub use tree::{
+    DcgTree, DcgTreeGuides, ExplainTreeBuilder, PackTreeItem, TreeNode, explain_trace_tree,
+    pack_list_tree,
+};
 
 use crate::config::Config;
 use std::sync::OnceLock;
