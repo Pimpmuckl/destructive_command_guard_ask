@@ -37,7 +37,8 @@ use ast_grep_language::SupportLang;
 use memchr::memchr_iter;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::{LazyLock, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -309,8 +310,9 @@ fn check_ast_timeout(
     start_time: Instant,
     timeout: Duration,
     budget_ms: u64,
+    cancel: &AtomicBool,
 ) -> Result<(), MatchError> {
-    if start_time.elapsed() > timeout {
+    if cancel.load(Ordering::Relaxed) || start_time.elapsed() > timeout {
         return Err(timeout_error(start_time, budget_ms));
     }
     Ok(())
@@ -326,10 +328,26 @@ fn run_ast_match_with_timeout(
 ) -> Result<Vec<PatternMatch>, MatchError> {
     let start_time = Instant::now();
     let (tx, rx) = mpsc::sync_channel(1);
+    // Shared cancellation flag: when the parent times out it flips this and
+    // returns immediately. The worker checks it inside `check_ast_timeout`
+    // (which fires between each pattern and between `find_all` iterations) so
+    // it stops promptly instead of running for another full `timeout` window
+    // after the parent has already returned. Without this, every parent
+    // timeout leaks a live worker thread for the duration of the worker's
+    // own deadline — under burst hook traffic that piles up.
+    let cancel = Arc::new(AtomicBool::new(false));
+    let worker_cancel = Arc::clone(&cancel);
 
+    // We don't `join` the handle on timeout — the worker may still hold a
+    // tree-sitter parser mid-iteration and joining would block the hook past
+    // its 200ms hard ceiling. The cancellation flag bounds the worker's own
+    // wall clock so a leaked handle still terminates promptly on its next
+    // `check_ast_timeout` call.
     let _worker = thread::Builder::new()
         .name("dcg-ast-match".to_string())
         .spawn(move || {
+            // Share the parent's `start_time` semantics by also starting the
+            // worker's deadline now; cancellation is the primary stop signal.
             let result = find_matches_ast(
                 &code,
                 language,
@@ -338,6 +356,7 @@ fn run_ast_match_with_timeout(
                 Instant::now(),
                 timeout,
                 budget_ms,
+                &worker_cancel,
             );
             let _ = tx.send(result);
         })
@@ -348,11 +367,17 @@ fn run_ast_match_with_timeout(
 
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(timeout_error(start_time, budget_ms)),
-        Err(mpsc::RecvTimeoutError::Disconnected) => Err(MatchError::ParseError {
-            language,
-            detail: "AST parser worker exited without a result".to_string(),
-        }),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            cancel.store(true, Ordering::Relaxed);
+            Err(timeout_error(start_time, budget_ms))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            cancel.store(true, Ordering::Relaxed);
+            Err(MatchError::ParseError {
+                language,
+                detail: "AST parser worker exited without a result".to_string(),
+            })
+        }
     }
 }
 
@@ -364,6 +389,7 @@ fn find_matches_ast(
     start_time: Instant,
     timeout: Duration,
     budget_ms: u64,
+    cancel: &AtomicBool,
 ) -> Result<Vec<PatternMatch>, MatchError> {
     let newline_positions: Vec<usize> = memchr_iter(b'\n', code.as_bytes()).collect();
 
@@ -372,19 +398,19 @@ fn find_matches_ast(
     let root = ast.root();
 
     // Check timeout after parsing
-    check_ast_timeout(start_time, timeout, budget_ms)?;
+    check_ast_timeout(start_time, timeout, budget_ms, cancel)?;
 
     let mut matches = Vec::new();
 
     // Match each pattern
     for compiled in patterns {
         // Check timeout before each pattern
-        check_ast_timeout(start_time, timeout, budget_ms)?;
+        check_ast_timeout(start_time, timeout, budget_ms, cancel)?;
 
         // Find all matches for this pattern
         for node in root.find_all(&compiled.pattern) {
             // Check timeout during matching (a single pattern can match many nodes)
-            check_ast_timeout(start_time, timeout, budget_ms)?;
+            check_ast_timeout(start_time, timeout, budget_ms, cancel)?;
 
             let matched_text = node.text();
             let range = node.range();
