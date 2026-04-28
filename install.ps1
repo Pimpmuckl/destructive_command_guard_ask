@@ -32,6 +32,169 @@ function Write-Ok { param($msg) Write-Host "[+] $msg" -ForegroundColor Green }
 function Write-Warn { param($msg) Write-Host "[!] $msg" -ForegroundColor Yellow }
 function Write-Err { param($msg) Write-Host "[-] $msg" -ForegroundColor Red }
 
+function Get-DcgCommandName {
+  param([string]$Command)
+
+  if ([string]::IsNullOrWhiteSpace($Command)) { return "" }
+
+  $trimmed = $Command.Trim()
+  if ($trimmed.StartsWith('"')) {
+    $end = $trimmed.IndexOf('"', 1)
+    if ($end -gt 0) {
+      $program = $trimmed.Substring(1, $end - 1)
+    } else {
+      $program = $trimmed.Trim('"')
+    }
+  } elseif ($trimmed.StartsWith("'")) {
+    $end = $trimmed.IndexOf("'", 1)
+    if ($end -gt 0) {
+      $program = $trimmed.Substring(1, $end - 1)
+    } else {
+      $program = $trimmed.Trim("'")
+    }
+  } else {
+    $program = ($trimmed -split '\s+', 2)[0]
+  }
+
+  (($program -replace '\\', '/') -split '/')[-1].ToLowerInvariant()
+}
+
+function Test-DcgHookCommand {
+  param([object]$Hook)
+
+  if ($null -eq $Hook) { return $false }
+  $prop = $Hook.PSObject.Properties["command"]
+  if ($null -eq $prop) { return $false }
+
+  $name = Get-DcgCommandName ([string]$prop.Value)
+  $name -eq "dcg" -or $name -eq "dcg.exe"
+}
+
+function Get-ObjectPropertyValue {
+  param([object]$Object, [string]$Name)
+
+  if ($null -eq $Object) { return $null }
+  $prop = $Object.PSObject.Properties[$Name]
+  if ($null -eq $prop) { return $null }
+  $prop.Value
+}
+
+function Set-ObjectPropertyValue {
+  param([object]$Object, [string]$Name, [object]$Value)
+
+  if ($null -eq $Object.PSObject.Properties[$Name]) {
+    $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+  } else {
+    $Object.$Name = $Value
+  }
+}
+
+function Get-JsonArray {
+  param([object]$Value)
+
+  if ($null -eq $Value) { return @() }
+  if ($Value -is [array]) { return @($Value) }
+  @($Value)
+}
+
+function Test-CodexHookAlreadyCurrent {
+  param([object]$Config, [string]$DcgPath)
+
+  $hooks = Get-ObjectPropertyValue $Config "hooks"
+  if ($null -eq $hooks) { return $false }
+
+  foreach ($entry in (Get-JsonArray (Get-ObjectPropertyValue $hooks "PreToolUse"))) {
+    if ((Get-ObjectPropertyValue $entry "matcher") -ne "Bash") { continue }
+    foreach ($hook in (Get-JsonArray (Get-ObjectPropertyValue $entry "hooks"))) {
+      $command = Get-ObjectPropertyValue $hook "command"
+      if ($command -eq $DcgPath) { return $true }
+    }
+  }
+
+  $false
+}
+
+function Configure-CodexHook {
+  param([string]$DcgPath)
+
+  $codexDir = Join-Path $HOME ".codex"
+  $hooksFile = Join-Path $codexDir "hooks.json"
+  $codexInstalled = (Test-Path $codexDir -PathType Container) -or
+    ($null -ne (Get-Command codex -ErrorAction SilentlyContinue)) -or
+    ($null -ne (Get-Command codex.exe -ErrorAction SilentlyContinue))
+
+  if (-not $codexInstalled) { return "skipped" }
+
+  if (-not (Test-Path $codexDir -PathType Container)) {
+    New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+  }
+
+  $dcgHook = [pscustomobject][ordered]@{
+    type = "command"
+    command = $DcgPath
+  }
+
+  if (-not (Test-Path $hooksFile -PathType Leaf)) {
+    $config = [pscustomobject][ordered]@{
+      hooks = [pscustomobject][ordered]@{
+        PreToolUse = @(
+          [pscustomobject][ordered]@{
+            matcher = "Bash"
+            hooks = @($dcgHook)
+          }
+        )
+      }
+    }
+    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $hooksFile -Encoding UTF8
+    return "created"
+  }
+
+  try {
+    $config = Get-Content -Raw -Path $hooksFile | ConvertFrom-Json
+  } catch {
+    $config = [pscustomobject][ordered]@{}
+  }
+
+  if ($null -eq $config -or $config -isnot [psobject]) {
+    $config = [pscustomobject][ordered]@{}
+  }
+
+  if (Test-CodexHookAlreadyCurrent $config $DcgPath) {
+    return "already"
+  }
+
+  $hooks = Get-ObjectPropertyValue $config "hooks"
+  if ($null -eq $hooks -or $hooks -isnot [psobject]) {
+    $hooks = [pscustomobject][ordered]@{}
+    Set-ObjectPropertyValue $config "hooks" $hooks
+  }
+
+  $bashHooks = @()
+  $newPreToolUse = @()
+
+  foreach ($entry in (Get-JsonArray (Get-ObjectPropertyValue $hooks "PreToolUse"))) {
+    if ((Get-ObjectPropertyValue $entry "matcher") -eq "Bash") {
+      foreach ($hook in (Get-JsonArray (Get-ObjectPropertyValue $entry "hooks"))) {
+        if (-not (Test-DcgHookCommand $hook)) {
+          $bashHooks += $hook
+        }
+      }
+    } else {
+      $newPreToolUse += $entry
+    }
+  }
+
+  $bashEntry = [pscustomobject][ordered]@{
+    matcher = "Bash"
+    hooks = @($dcgHook) + $bashHooks
+  }
+  $newPreToolUse = @($bashEntry) + $newPreToolUse
+
+  Set-ObjectPropertyValue $hooks "PreToolUse" $newPreToolUse
+  $config | ConvertTo-Json -Depth 20 | Set-Content -Path $hooksFile -Encoding UTF8
+  "merged"
+}
+
 # Resolve latest version if not specified
 if (-not $Version) {
   Write-Info "Resolving latest version..."
@@ -207,23 +370,15 @@ Write-Host @"
 "@
 
 Write-Host ""
-Write-Warn "Codex CLI auto-configuration is not implemented by the Windows installer yet."
-Write-Info "To protect Codex CLI on Windows, create or merge this into $HOME\.codex\hooks.json:"
-Write-Host @"
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$jsonPath"
-          }
-        ]
-      }
-    ]
+try {
+  $codexStatus = Configure-CodexHook -DcgPath (Join-Path $Dest "dcg.exe")
+  switch ($codexStatus) {
+    "created" { Write-Ok "Created Codex CLI hook at $HOME\.codex\hooks.json" }
+    "merged" { Write-Ok "Added Codex CLI hook to $HOME\.codex\hooks.json" }
+    "already" { Write-Ok "Codex CLI hook already configured" }
+    "skipped" { Write-Info "Codex CLI not detected; skipped Codex hook configuration" }
+    default { Write-Warn "Codex CLI hook status: $codexStatus" }
   }
+} catch {
+  Write-Warn "Codex CLI auto-configuration failed: $_"
 }
-"@
-Write-Info "To uninstall the Codex hook later, remove only this dcg entry from $HOME\.codex\hooks.json."

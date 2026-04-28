@@ -679,7 +679,7 @@ The installer also verifies Sigstore cosign bundles when available (falls back t
 
 - **Aider:** No PreToolUse-style interception. The installer enables `git-commit-verify: true` in `~/.aider.conf.yml` so git hooks run. For full protection, install dcg as a [git pre-commit hook](docs/scan-precommit-guide.md).
 - **Continue:** No shell command interception hooks. The installer detects Continue but cannot auto-configure protection. Use a [git pre-commit hook](docs/scan-precommit-guide.md) instead.
-- **Codex CLI:** PreToolUse hooks via `~/.codex/hooks.json` (stable in codex 0.125.0+; the `codex_hooks` feature is on by default). Codex's hook input shape mirrors Claude Code's, but its JSON deny parser is strict (`#[serde(deny_unknown_fields)]`), so dcg detects Codex from the `turn_id` stdin field (codex's documented extension over Claude's hook spec) and switches to Codex's documented stderr deny path with exit code 2; the colored block message goes to stderr where codex shows it to the model. See the [Codex integration notes](docs/codex-integration.md). Caveat: the model can still write scripts to disk to bypass hook-based blocking. **Windows note:** `install.ps1` does not yet write Codex hooks automatically; it only sets up Claude Code. Windows users should manually create `%USERPROFILE%\.codex\hooks.json` with the same shape as shown [above](#easy-mode-install) (using backslash-escaped paths to `dcg.exe`). An `uninstall.ps1` does not exist yet either.
+- **Codex CLI:** PreToolUse hooks via `~/.codex/hooks.json` (stable in codex 0.125.0+; the `codex_hooks` feature is on by default). Codex's hook input shape mirrors Claude Code's, but its JSON deny parser is strict (`#[serde(deny_unknown_fields)]`), so dcg detects Codex from the `turn_id` stdin field (codex's documented extension over Claude's hook spec) and switches to Codex's documented stderr deny path with exit code 2; the colored block message goes to stderr where codex shows it to the model. See the [Codex integration notes](docs/codex-integration.md). Caveat: the model can still write scripts to disk to bypass hook-based blocking. **Windows note:** `install.ps1` now detects Codex and merges a dcg `PreToolUse` Bash hook into `%USERPROFILE%\.codex\hooks.json`; `uninstall.ps1` removes only dcg hooks and preserves coexisting entries.
 - **GitHub Copilot CLI:** Hooks are repository-local (`.github/hooks/*.json`). Run the installer from each repository where you want protection.
 - **OpenCode:** Not auto-configured. Requires a Bun-based plugin with `"tool.execute.before"` hook key. A working community plugin: [aspiers/ai-config/dcg-guard.js](https://github.com/aspiers/ai-config/blob/main/.config/opencode/plugins/dcg-guard.js).
 
@@ -747,11 +747,19 @@ Remove dcg and all its hooks from AI agents:
 curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/uninstall.sh | bash
 ```
 
-The uninstaller:
+On Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/uninstall.ps1 | iex
+```
+
+The Unix uninstaller:
 - Removes dcg hooks from Claude Code, Codex CLI, Cursor IDE, Gemini CLI, GitHub Copilot CLI (repo-local), and Aider
 - Removes the dcg binary
 - Removes configuration (`~/.config/dcg/`) and history (`~/.local/share/dcg/`)
 - Prompts for confirmation before making changes
+
+The PowerShell uninstaller removes the Windows `dcg.exe` binary, the exact User PATH entry added by `install.ps1`, dcg hooks from Claude Code and Codex CLI, and dcg configuration/history directories.
 
 Options:
 - `--yes` - Skip confirmation prompt
