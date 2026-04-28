@@ -1479,19 +1479,20 @@ fn disable_core_filesystem_still_blocks_git_claude() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Hermetic HOME isolation
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Hermetic HOME isolation + P2.14 Parallel test runner isolation
+//
+// Meta-tests that validate the test infrastructure itself. Without these,
+// a subtle mistake in hermetic HOME helpers could cause flaky failures only
+// on multi-core CI runners.
+// ===========================================================================
 
 #[test]
 fn smoke_hermetic_home_isolates_pending_exceptions() {
     let outcome = run_codex_hook("git reset --hard HEAD~1");
     assert!(outcome.is_codex_block_shape(), "block expected\n{outcome}");
 
-    // Verify the pending exception directory (if any) is inside the test HOME
     let pending_dir = outcome.home_dir.join(".config/dcg/pending");
-    // It's OK if the dir doesn't exist (dcg may not write pending in all modes),
-    // but if it does, it proves isolation.
     if pending_dir.exists() {
         let entries: Vec<_> = std::fs::read_dir(&pending_dir)
             .expect("failed to read pending dir")
@@ -1501,16 +1502,182 @@ fn smoke_hermetic_home_isolates_pending_exceptions() {
             "pending dir exists but is empty — expected pending exception entry"
         );
     }
-    // The real HOME must NOT have been touched.
     if let Ok(real_home) = std::env::var("HOME") {
-        let real_pending = PathBuf::from(&real_home).join(".config/dcg/pending");
-        // We can't assert it doesn't exist (it may from normal usage), but
-        // we verify our test HOME is different from real HOME.
         assert_ne!(
             PathBuf::from(&real_home),
             outcome.home_dir,
             "hermetic HOME must differ from real HOME"
         );
-        let _ = real_pending; // suppress unused warning
     }
+}
+
+// ---------------------------------------------------------------------------
+// P2.14.1 — Spawn-storm: 16 parallel Codex denies, each isolated
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parallel_spawn_storm_no_cross_contamination() {
+    use std::sync::Arc;
+
+    let n = 16;
+    let outcomes: Vec<HookOutcome> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..n)
+            .map(|_| s.spawn(|| run_codex_hook("git reset --hard HEAD~1")))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    // All N must be Codex block shape
+    for (i, o) in outcomes.iter().enumerate() {
+        assert!(
+            o.is_codex_block_shape(),
+            "spawn {i}: expected Codex block shape\n{o}"
+        );
+    }
+
+    // All N must have DISTINCT hermetic HOMEs
+    let homes: std::collections::HashSet<_> =
+        outcomes.iter().map(|o| o.home_dir.clone()).collect();
+    assert_eq!(
+        homes.len(),
+        n,
+        "all {n} spawns must use distinct hermetic HOMEs, got {} unique",
+        homes.len()
+    );
+
+    // Each pending store (if present) must have exactly 1 entry
+    for (i, o) in outcomes.iter().enumerate() {
+        let pending_dir = o.home_dir.join(".config/dcg/pending");
+        if pending_dir.exists() {
+            let entries: Vec<_> = std::fs::read_dir(&pending_dir)
+                .expect("read pending dir")
+                .filter_map(|e| e.ok())
+                .collect();
+            assert_eq!(
+                entries.len(),
+                1,
+                "spawn {i}: pending dir must have exactly 1 entry, found {}",
+                entries.len()
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P2.14.2 — Sequential vs parallel equivalence
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sequential_vs_parallel_produce_same_exit_codes() {
+    let cmd = "git clean -fd";
+    let n = 8;
+
+    // Sequential
+    let seq_codes: Vec<i32> = (0..n)
+        .map(|_| run_codex_hook(cmd).exit_code)
+        .collect();
+
+    // Parallel
+    let par_codes: Vec<i32> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..n)
+            .map(|_| s.spawn(|| run_codex_hook(cmd).exit_code))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+
+    // All must be identical (exit 2 for destructive command)
+    for code in &seq_codes {
+        assert_eq!(*code, 2, "sequential run must exit 2");
+    }
+    for code in &par_codes {
+        assert_eq!(*code, 2, "parallel run must exit 2");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P2.14.3 — Real HOME not touched by hermetic tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hermetic_tests_do_not_touch_real_home() {
+    let real_home = match std::env::var("HOME") {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => return, // skip if no real HOME
+    };
+    let real_pending = real_home.join(".config/dcg/pending");
+
+    // Record mtime before (if dir exists)
+    let mtime_before = std::fs::metadata(&real_pending)
+        .ok()
+        .and_then(|m| m.modified().ok());
+
+    // Run a deny that writes to pending store
+    let outcome = run_codex_hook("git reset --hard HEAD~1");
+    assert!(outcome.is_codex_block_shape());
+    assert_ne!(outcome.home_dir, real_home);
+
+    // Verify mtime unchanged
+    let mtime_after = std::fs::metadata(&real_pending)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    assert_eq!(
+        mtime_before, mtime_after,
+        "real HOME pending dir mtime must not change during hermetic test"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2.14.4 — Mixed protocol parallel: Codex + Claude in same storm
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parallel_mixed_protocol_storm() {
+    let n = 8; // 8 Codex + 8 Claude = 16 total
+    let cmd = "git reset --hard HEAD~1";
+
+    let (codex_outcomes, claude_outcomes): (Vec<HookOutcome>, Vec<HookOutcome>) =
+        std::thread::scope(|s| {
+            let codex_handles: Vec<_> = (0..n)
+                .map(|_| s.spawn(|| run_codex_hook(cmd)))
+                .collect();
+            let claude_handles: Vec<_> = (0..n)
+                .map(|_| s.spawn(|| run_claude_hook(cmd)))
+                .collect();
+
+            let codex: Vec<_> = codex_handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .collect();
+            let claude: Vec<_> = claude_handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .collect();
+            (codex, claude)
+        });
+
+    for (i, o) in codex_outcomes.iter().enumerate() {
+        assert!(
+            o.is_codex_block_shape(),
+            "parallel Codex {i}: expected block shape\n{o}"
+        );
+    }
+    for (i, o) in claude_outcomes.iter().enumerate() {
+        assert!(
+            o.is_claude_block_shape(),
+            "parallel Claude {i}: expected block shape\n{o}"
+        );
+    }
+
+    // All 16 homes must be distinct
+    let all_homes: std::collections::HashSet<_> = codex_outcomes
+        .iter()
+        .chain(claude_outcomes.iter())
+        .map(|o| o.home_dir.clone())
+        .collect();
+    assert_eq!(
+        all_homes.len(),
+        n * 2,
+        "all 16 spawns must use distinct HOMEs, got {} unique",
+        all_homes.len()
+    );
 }
