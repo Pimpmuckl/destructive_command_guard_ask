@@ -16,7 +16,7 @@ use rich_rust::style::Style;
 use super::theme::{BorderStyle, Theme};
 use crate::evaluator::EvaluationDecision;
 use crate::trace::{ExplainTrace, MatchInfo, PackSummary, TraceDetails, TraceStep};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Default maximum number of patterns shown per pack section in verbose trees.
 pub const DEFAULT_PACK_TREE_MAX_PATTERNS: usize = 10;
@@ -170,6 +170,40 @@ impl PackTreeItem {
     ) -> Self {
         self.safe_patterns = safe_patterns;
         self.destructive_patterns = destructive_patterns;
+        self
+    }
+}
+
+/// Pack dependency row formatted for dependency tree rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyTreeItem {
+    /// Stable pack ID, for example `kubernetes.production`.
+    pub id: String,
+    /// Human-readable pack name.
+    pub name: String,
+    /// Pack IDs this pack depends on or extends.
+    pub dependencies: Vec<String>,
+}
+
+impl DependencyTreeItem {
+    /// Create a dependency tree item without dependencies.
+    #[must_use]
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            dependencies: Vec::new(),
+        }
+    }
+
+    /// Attach dependency pack IDs.
+    #[must_use]
+    pub fn with_dependencies<I, S>(mut self, dependencies: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.dependencies = dependencies.into_iter().map(Into::into).collect();
         self
     }
 }
@@ -1097,6 +1131,79 @@ fn pattern_tree_node(pattern: &PackTreePattern, use_color: bool) -> TreeNode {
     TreeNode::new(label)
 }
 
+/// Build a tree showing pack dependency relationships.
+#[must_use]
+pub fn pack_dependency_tree(items: &[DependencyTreeItem]) -> DcgTree {
+    let mut by_id: BTreeMap<&str, &DependencyTreeItem> = BTreeMap::new();
+    let mut referenced: BTreeSet<&str> = BTreeSet::new();
+
+    for item in items {
+        by_id.insert(item.id.as_str(), item);
+        for dependency in &item.dependencies {
+            referenced.insert(dependency.as_str());
+        }
+    }
+
+    let mut roots: Vec<&DependencyTreeItem> = items
+        .iter()
+        .filter(|item| !referenced.contains(item.id.as_str()))
+        .collect();
+    if roots.is_empty() {
+        roots = items.iter().collect();
+    }
+    roots.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut root = TreeNode::new("Pack Dependencies");
+    if roots.is_empty() {
+        root = root.child(TreeNode::new("No dependencies to display").styled("[dim]"));
+    } else {
+        for item in roots {
+            root = root.child(dependency_root_node(item, &by_id, &mut Vec::new()));
+        }
+    }
+
+    DcgTree::new(root).guides(DcgTreeGuides::Rounded)
+}
+
+fn dependency_root_node<'a>(
+    item: &'a DependencyTreeItem,
+    by_id: &BTreeMap<&'a str, &'a DependencyTreeItem>,
+    stack: &mut Vec<&'a str>,
+) -> TreeNode {
+    stack.push(item.id.as_str());
+    let mut node = TreeNode::new(format!("{} - {}", item.id, item.name)).styled("[cyan]");
+
+    for dependency in &item.dependencies {
+        node = node.child(dependency_edge_node(dependency, by_id, stack));
+    }
+
+    stack.pop();
+    node
+}
+
+fn dependency_edge_node<'a>(
+    dependency_id: &str,
+    by_id: &BTreeMap<&'a str, &'a DependencyTreeItem>,
+    stack: &mut Vec<&'a str>,
+) -> TreeNode {
+    if stack.contains(&dependency_id) {
+        return TreeNode::new(format!("extends {dependency_id} (cycle)")).styled("[red]");
+    }
+
+    let Some(item) = by_id.get(dependency_id).copied() else {
+        return TreeNode::new(format!("extends {dependency_id} (missing)")).styled("[yellow]");
+    };
+
+    stack.push(item.id.as_str());
+    let mut node = TreeNode::new(format!("extends {} - {}", item.id, item.name)).styled("[yellow]");
+    for dependency in &item.dependencies {
+        node = node.child(dependency_edge_node(dependency, by_id, stack));
+    }
+    stack.pop();
+
+    node
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1575,5 +1682,73 @@ mod tests {
         assert!(output.contains("Available Packs"));
         assert!(output.contains("No packs to display"));
         assert!(output.contains("Legend"));
+    }
+
+    #[test]
+    fn test_pack_dependency_tree_renders_extends_edges() {
+        let items = vec![
+            DependencyTreeItem::new("kubernetes.base", "Kubernetes Base"),
+            DependencyTreeItem::new("kubernetes.production", "Kubernetes Production")
+                .with_dependencies(["kubernetes.base"]),
+            DependencyTreeItem::new("strict_git", "Strict Git").with_dependencies(["core.git"]),
+            DependencyTreeItem::new("core.git", "Git"),
+        ];
+
+        let lines = pack_dependency_tree(&items)
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("Pack Dependencies"));
+        assert!(output.contains("kubernetes.production - Kubernetes Production"));
+        assert!(output.contains("extends kubernetes.base - Kubernetes Base"));
+        assert!(output.contains("strict_git - Strict Git"));
+        assert!(output.contains("extends core.git - Git"));
+    }
+
+    #[test]
+    fn test_pack_dependency_tree_marks_missing_dependencies() {
+        let items = vec![
+            DependencyTreeItem::new("custom.pack", "Custom Pack")
+                .with_dependencies(["core.filesystem", "external.audit"]),
+            DependencyTreeItem::new("core.filesystem", "Filesystem"),
+        ];
+
+        let lines = pack_dependency_tree(&items)
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("custom.pack - Custom Pack"));
+        assert!(output.contains("extends core.filesystem - Filesystem"));
+        assert!(output.contains("extends external.audit (missing)"));
+    }
+
+    #[test]
+    fn test_pack_dependency_tree_marks_cycles() {
+        let items = vec![
+            DependencyTreeItem::new("pack.alpha", "Alpha").with_dependencies(["pack.beta"]),
+            DependencyTreeItem::new("pack.beta", "Beta").with_dependencies(["pack.alpha"]),
+        ];
+
+        let lines = pack_dependency_tree(&items)
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("pack.alpha - Alpha"));
+        assert!(output.contains("extends pack.beta - Beta"));
+        assert!(output.contains("extends pack.alpha (cycle)"));
+    }
+
+    #[test]
+    fn test_pack_dependency_tree_empty() {
+        let lines = pack_dependency_tree(&[])
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("Pack Dependencies"));
+        assert!(output.contains("No dependencies to display"));
     }
 }
