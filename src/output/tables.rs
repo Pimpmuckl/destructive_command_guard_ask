@@ -19,13 +19,8 @@
 //! # Feature Flags
 //!
 //! When the `rich-output` feature is enabled, tables are rendered using `rich_rust`
-//! for premium terminal output. Markdown tables still use `comfy-table` for
-//! compatibility with documentation tools.
-
-use comfy_table::presets;
-use comfy_table::{Attribute, Cell, CellAlignment, Color, ContentArrangement, Row, Table};
-#[cfg(not(feature = "rich-output"))]
-use ratatui::style::Color as RatColor;
+//! for premium terminal output. The built-in renderer handles plain and Markdown
+//! fallback output without external table dependencies.
 
 #[cfg(feature = "rich-output")]
 use super::rich_theme::RichThemeExt;
@@ -36,33 +31,6 @@ use super::theme::{BorderStyle, Severity, Theme};
 #[cfg(feature = "rich-output")]
 fn segments_to_string(segments: Vec<rich_rust::segment::Segment<'static>>) -> String {
     segments.into_iter().map(|s| s.text.into_owned()).collect()
-}
-
-/// Convert ratatui color to comfy-table color.
-/// Only used when rich-output feature is disabled.
-#[cfg(not(feature = "rich-output"))]
-fn to_table_color(color: RatColor) -> Color {
-    match color {
-        RatColor::Reset => Color::Reset,
-        RatColor::Black => Color::Black,
-        RatColor::Red => Color::Red,
-        RatColor::Green => Color::Green,
-        RatColor::Yellow => Color::Yellow,
-        RatColor::Blue => Color::Blue,
-        RatColor::Magenta => Color::Magenta,
-        RatColor::Cyan => Color::Cyan,
-        RatColor::Gray => Color::Grey,
-        RatColor::DarkGray => Color::DarkGrey,
-        RatColor::LightRed => Color::Red,
-        RatColor::LightGreen => Color::Green,
-        RatColor::LightYellow => Color::Yellow,
-        RatColor::LightBlue => Color::Blue,
-        RatColor::LightMagenta => Color::Magenta,
-        RatColor::LightCyan => Color::Cyan,
-        RatColor::White => Color::White,
-        RatColor::Rgb(r, g, b) => Color::Rgb { r, g, b },
-        RatColor::Indexed(value) => Color::AnsiValue(value),
-    }
 }
 
 /// Table rendering style.
@@ -80,24 +48,6 @@ pub enum TableStyle {
 }
 
 impl TableStyle {
-    /// Applies this style's preset to a comfy-table.
-    fn apply_preset(&self, table: &mut Table) {
-        match self {
-            Self::Unicode => {
-                table.load_preset(presets::UTF8_FULL);
-            }
-            Self::Ascii => {
-                table.load_preset(presets::ASCII_FULL);
-            }
-            Self::Markdown => {
-                table.load_preset(presets::ASCII_MARKDOWN);
-            }
-            Self::Compact => {
-                table.load_preset(presets::UTF8_BORDERS_ONLY);
-            }
-        }
-    }
-
     /// Returns the corresponding rich_rust box style.
     #[cfg(feature = "rich-output")]
     fn box_chars(&self) -> &'static rich_rust::r#box::BoxChars {
@@ -105,12 +55,12 @@ impl TableStyle {
         match self {
             Self::Unicode => &ROUNDED,
             Self::Ascii => &ASCII,
-            Self::Markdown => &MINIMAL, // Markdown uses comfy-table
+            Self::Markdown => &MINIMAL,
             Self::Compact => &MINIMAL,
         }
     }
 
-    /// Returns true if this style should use Markdown output (comfy-table).
+    /// Returns true if this style should use Markdown output.
     #[must_use]
     pub const fn is_markdown(&self) -> bool {
         matches!(self, Self::Markdown)
@@ -228,59 +178,60 @@ impl ScanResultsTable {
     /// Renders the table to a string.
     ///
     /// When the `rich-output` feature is enabled, uses `rich_rust` for premium
-    /// terminal output (except for Markdown style which uses comfy-table).
+    /// terminal output except for Markdown style, which remains plain text.
     #[must_use]
     pub fn render(&self) -> String {
         if self.rows.is_empty() {
             return String::from("No findings.");
         }
 
+        if self.style.is_markdown() {
+            return self.render_plain();
+        }
+
         // Use rich_rust for non-Markdown styles when feature is enabled
         #[cfg(feature = "rich-output")]
-        if !self.style.is_markdown() {
-            return self.render_rich();
-        }
+        return self.render_rich();
 
-        self.render_comfy()
+        #[cfg(not(feature = "rich-output"))]
+        self.render_plain()
     }
 
-    /// Renders using comfy-table (default, or Markdown output).
-    fn render_comfy(&self) -> String {
-        let mut table = Table::new();
-        self.style.apply_preset(&mut table);
-        table.set_content_arrangement(ContentArrangement::Dynamic);
-
-        if let Some(width) = self.max_width {
-            table.set_width(width);
-        }
-
-        // Set header
-        let mut header = vec!["File", "Line", "Severity", "Pattern"];
+    /// Renders using dcg's built-in plain table formatter.
+    fn render_plain(&self) -> String {
+        let _ = (self.colors_enabled, &self.theme);
+        let mut headers = vec![
+            PlainCell::left("File"),
+            PlainCell::right("Line"),
+            PlainCell::center("Severity"),
+            PlainCell::left("Pattern"),
+        ];
         if self.show_command {
-            header.push("Command");
-        }
-        table.set_header(header);
-
-        // Add rows
-        for row in &self.rows {
-            let severity_cell = self.severity_cell_comfy(row.severity);
-            let mut cells = vec![
-                Cell::new(&row.file),
-                Cell::new(row.line).set_alignment(CellAlignment::Right),
-                severity_cell,
-                Cell::new(&row.pattern_id),
-            ];
-
-            if self.show_command {
-                let cmd = row.command_preview.as_deref().unwrap_or("-");
-                let truncated = truncate_with_ellipsis(cmd, 40);
-                cells.push(Cell::new(truncated));
-            }
-
-            table.add_row(Row::from(cells));
+            headers.push(PlainCell::left("Command"));
         }
 
-        table.to_string()
+        let rows: Vec<Vec<PlainCell>> = self
+            .rows
+            .iter()
+            .map(|row| {
+                let mut cells = vec![
+                    PlainCell::left(&row.file),
+                    PlainCell::right(row.line.to_string()),
+                    PlainCell::center(severity_label(row.severity)),
+                    PlainCell::left(&row.pattern_id),
+                ];
+
+                if self.show_command {
+                    let cmd = row.command_preview.as_deref().unwrap_or("-");
+                    let truncated = truncate_with_ellipsis(cmd, 40);
+                    cells.push(PlainCell::left(truncated));
+                }
+
+                cells
+            })
+            .collect();
+
+        render_plain_table(self.style, &headers, &rows, self.max_width)
     }
 
     /// Renders using rich_rust for premium terminal output.
@@ -306,7 +257,7 @@ impl ScanResultsTable {
 
         for row in &self.rows {
             let severity_markup = self.severity_markup_rich(row.severity);
-            let mut cells: Vec<RichCell> = vec![
+            let mut cells = vec![
                 RichCell::new(row.file.as_str()),
                 RichCell::new(row.line.to_string()),
                 RichCell::new(severity_markup),
@@ -342,53 +293,9 @@ impl ScanResultsTable {
 
         format!("[{markup}]{}[/]", severity_label(severity))
     }
-
-    /// Creates a styled cell for severity (comfy-table version).
-    #[cfg(not(feature = "rich-output"))]
-    fn severity_cell_comfy(&self, severity: Severity) -> Cell {
-        let (label, default_color, bold) = match severity {
-            Severity::Critical => ("CRIT", Color::Red, true),
-            Severity::High => ("HIGH", Color::DarkRed, false),
-            Severity::Medium => ("MED", Color::Yellow, false),
-            Severity::Low => ("LOW", Color::Blue, false),
-        };
-        let color = self.theme.as_ref().map_or(default_color, |theme| {
-            to_table_color(theme.color_for_severity(severity))
-        });
-
-        let mut cell = Cell::new(label);
-        if self.colors_enabled {
-            cell = cell.fg(color);
-            if bold {
-                cell = cell.add_attribute(Attribute::Bold);
-            }
-        }
-        cell
-    }
-
-    /// Creates a styled cell for severity (comfy-table version, rich-output build).
-    #[cfg(feature = "rich-output")]
-    fn severity_cell_comfy(&self, severity: Severity) -> Cell {
-        let (label, default_color, bold) = match severity {
-            Severity::Critical => ("CRIT", Color::Red, true),
-            Severity::High => ("HIGH", Color::DarkRed, false),
-            Severity::Medium => ("MED", Color::Yellow, false),
-            Severity::Low => ("LOW", Color::Blue, false),
-        };
-
-        let mut cell = Cell::new(label);
-        if self.colors_enabled {
-            cell = cell.fg(default_color);
-            if bold {
-                cell = cell.add_attribute(Attribute::Bold);
-            }
-        }
-        cell
-    }
 }
 
 /// Returns short severity label.
-#[cfg(any(feature = "rich-output", test))]
 fn severity_label(severity: Severity) -> &'static str {
     match severity {
         Severity::Critical => "CRIT",
@@ -482,49 +389,51 @@ impl StatsTable {
     /// Renders the table to a string.
     ///
     /// When the `rich-output` feature is enabled, uses `rich_rust` for premium
-    /// terminal output (except for Markdown style which uses comfy-table).
+    /// terminal output except for Markdown style, which remains plain text.
     #[must_use]
     pub fn render(&self) -> String {
         if self.rows.is_empty() {
             return String::from("No statistics available.");
         }
 
+        if self.style.is_markdown() {
+            return self.render_plain();
+        }
+
         // Use rich_rust for non-Markdown styles when feature is enabled
         #[cfg(feature = "rich-output")]
-        if !self.style.is_markdown() {
-            return self.render_rich();
-        }
+        return self.render_rich();
 
-        self.render_comfy()
+        #[cfg(not(feature = "rich-output"))]
+        self.render_plain()
     }
 
-    /// Renders using comfy-table (default, or Markdown output).
-    fn render_comfy(&self) -> String {
-        let mut table = Table::new();
-        self.style.apply_preset(&mut table);
-        table.set_content_arrangement(ContentArrangement::Dynamic);
+    /// Renders using dcg's built-in plain table formatter.
+    fn render_plain(&self) -> String {
+        let _ = (self.colors_enabled, &self.theme);
+        let headers = vec![
+            PlainCell::left("Rule"),
+            PlainCell::right("Hits"),
+            PlainCell::right("Allowed"),
+            PlainCell::right("Denied"),
+            PlainCell::right("Noise%"),
+        ];
 
-        if let Some(width) = self.max_width {
-            table.set_width(width);
-        }
+        let rows: Vec<Vec<PlainCell>> = self
+            .rows
+            .iter()
+            .map(|row| {
+                vec![
+                    PlainCell::left(&row.name),
+                    PlainCell::right(row.hits.to_string()),
+                    PlainCell::right(row.allowed.to_string()),
+                    PlainCell::right(row.denied.to_string()),
+                    PlainCell::right(noise_label(row.noise_pct)),
+                ]
+            })
+            .collect();
 
-        // Set header
-        table.set_header(vec!["Rule", "Hits", "Allowed", "Denied", "Noise%"]);
-
-        // Add rows
-        for row in &self.rows {
-            let noise_cell = self.noise_cell_comfy(row.noise_pct);
-
-            table.add_row(Row::from(vec![
-                Cell::new(&row.name),
-                Cell::new(row.hits).set_alignment(CellAlignment::Right),
-                Cell::new(row.allowed).set_alignment(CellAlignment::Right),
-                Cell::new(row.denied).set_alignment(CellAlignment::Right),
-                noise_cell,
-            ]));
-        }
-
-        let table_str = table.to_string();
+        let table_str = render_plain_table(self.style, &headers, &rows, self.max_width);
 
         if let Some(title) = &self.title {
             format!("{title}\n{table_str}")
@@ -607,66 +516,6 @@ impl StatsTable {
 
         format!("[{color}]{label}[/]")
     }
-
-    /// Creates a styled cell for noise percentage (comfy-table version).
-    #[cfg(not(feature = "rich-output"))]
-    fn noise_cell_comfy(&self, noise_pct: Option<f64>) -> Cell {
-        let Some(pct) = noise_pct else {
-            return Cell::new("-").set_alignment(CellAlignment::Right);
-        };
-
-        let label = format!("{pct:.1}%");
-        let mut cell = Cell::new(label).set_alignment(CellAlignment::Right);
-
-        if self.colors_enabled {
-            let (error_color, warning_color, success_color) =
-                self.theme
-                    .as_ref()
-                    .map_or((Color::Red, Color::Yellow, Color::Green), |theme| {
-                        (
-                            to_table_color(theme.error_color),
-                            to_table_color(theme.warning_color),
-                            to_table_color(theme.success_color),
-                        )
-                    });
-            // Color based on noise level: high noise = yellow/red warning
-            cell = if pct > 50.0 {
-                cell.fg(error_color)
-            } else if pct > 25.0 {
-                cell.fg(warning_color)
-            } else {
-                cell.fg(success_color)
-            };
-        }
-
-        cell
-    }
-
-    /// Creates a styled cell for noise percentage (comfy-table version, rich-output build).
-    #[cfg(feature = "rich-output")]
-    fn noise_cell_comfy(&self, noise_pct: Option<f64>) -> Cell {
-        let Some(pct) = noise_pct else {
-            return Cell::new("-").set_alignment(CellAlignment::Right);
-        };
-
-        let label = format!("{pct:.1}%");
-        let mut cell = Cell::new(label).set_alignment(CellAlignment::Right);
-
-        if self.colors_enabled {
-            // Use default colors for Markdown output (rich-output build)
-            let (error_color, warning_color, success_color) =
-                (Color::Red, Color::Yellow, Color::Green);
-            cell = if pct > 50.0 {
-                cell.fg(error_color)
-            } else if pct > 25.0 {
-                cell.fg(warning_color)
-            } else {
-                cell.fg(success_color)
-            };
-        }
-
-        cell
-    }
 }
 
 /// A single pack row for display.
@@ -742,56 +591,59 @@ impl PackListTable {
     /// Renders the table to a string.
     ///
     /// When the `rich-output` feature is enabled, uses `rich_rust` for premium
-    /// terminal output (except for Markdown style which uses comfy-table).
+    /// terminal output except for Markdown style, which remains plain text.
     #[must_use]
     pub fn render(&self) -> String {
         if self.rows.is_empty() {
             return String::from("No packs available.");
         }
 
+        if self.style.is_markdown() {
+            return self.render_plain();
+        }
+
         // Use rich_rust for non-Markdown styles when feature is enabled
         #[cfg(feature = "rich-output")]
-        if !self.style.is_markdown() {
-            return self.render_rich();
-        }
+        return self.render_rich();
 
-        self.render_comfy()
+        #[cfg(not(feature = "rich-output"))]
+        self.render_plain()
     }
 
-    /// Renders using comfy-table (default, or Markdown output).
-    fn render_comfy(&self) -> String {
-        let mut table = Table::new();
-        self.style.apply_preset(&mut table);
-        table.set_content_arrangement(ContentArrangement::Dynamic);
-
-        if let Some(width) = self.max_width {
-            table.set_width(width);
-        }
-
-        // Set header
-        let mut header = vec!["Pack ID", "Name", "Destructive", "Safe"];
+    /// Renders using dcg's built-in plain table formatter.
+    fn render_plain(&self) -> String {
+        let _ = (self.colors_enabled, &self.theme);
+        let mut headers = vec![
+            PlainCell::left("Pack ID"),
+            PlainCell::left("Name"),
+            PlainCell::right("Destructive"),
+            PlainCell::right("Safe"),
+        ];
         if self.show_status {
-            header.push("Status");
-        }
-        table.set_header(header);
-
-        // Add rows
-        for row in &self.rows {
-            let mut cells = vec![
-                Cell::new(&row.id),
-                Cell::new(&row.name),
-                Cell::new(row.destructive_count).set_alignment(CellAlignment::Right),
-                Cell::new(row.safe_count).set_alignment(CellAlignment::Right),
-            ];
-
-            if self.show_status {
-                cells.push(self.status_cell_comfy(row.enabled));
-            }
-
-            table.add_row(Row::from(cells));
+            headers.push(PlainCell::center("Status"));
         }
 
-        table.to_string()
+        let rows: Vec<Vec<PlainCell>> = self
+            .rows
+            .iter()
+            .map(|row| {
+                let status = if row.enabled { "enabled" } else { "disabled" };
+                let mut cells = vec![
+                    PlainCell::left(&row.id),
+                    PlainCell::left(&row.name),
+                    PlainCell::right(row.destructive_count.to_string()),
+                    PlainCell::right(row.safe_count.to_string()),
+                ];
+
+                if self.show_status {
+                    cells.push(PlainCell::center(status));
+                }
+
+                cells
+            })
+            .collect();
+
+        render_plain_table(self.style, &headers, &rows, self.max_width)
     }
 
     /// Renders using rich_rust for premium terminal output.
@@ -858,45 +710,355 @@ impl PackListTable {
             format!("[{color}]○ disabled[/]")
         }
     }
+}
 
-    /// Creates a styled cell for enabled/disabled status (comfy-table version).
-    #[cfg(not(feature = "rich-output"))]
-    fn status_cell_comfy(&self, enabled: bool) -> Cell {
-        let (label, default_color) = if enabled {
-            ("enabled", Color::Green)
-        } else {
-            ("disabled", Color::DarkGrey)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlainAlign {
+    Left,
+    Right,
+    Center,
+}
+
+#[derive(Debug, Clone)]
+struct PlainCell {
+    text: String,
+    align: PlainAlign,
+}
+
+impl PlainCell {
+    fn left(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            align: PlainAlign::Left,
+        }
+    }
+
+    fn right(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            align: PlainAlign::Right,
+        }
+    }
+
+    fn center(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            align: PlainAlign::Center,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BorderChars {
+    top_left: char,
+    top_sep: char,
+    top_right: char,
+    mid_left: char,
+    mid_sep: char,
+    mid_right: char,
+    bottom_left: char,
+    bottom_sep: char,
+    bottom_right: char,
+    horizontal: char,
+    vertical: char,
+}
+
+fn render_plain_table(
+    style: TableStyle,
+    headers: &[PlainCell],
+    rows: &[Vec<PlainCell>],
+    max_width: Option<u16>,
+) -> String {
+    let mut widths = column_widths(headers, rows);
+    shrink_widths(style, &mut widths, max_width);
+
+    match style {
+        TableStyle::Markdown => render_markdown_table(headers, rows, &widths),
+        TableStyle::Compact => render_compact_table(headers, rows, &widths),
+        TableStyle::Unicode | TableStyle::Ascii => render_box_table(style, headers, rows, &widths),
+    }
+}
+
+fn column_widths(headers: &[PlainCell], rows: &[Vec<PlainCell>]) -> Vec<usize> {
+    let column_count = headers
+        .len()
+        .max(rows.iter().map(Vec::len).max().unwrap_or(0));
+    let mut widths = vec![0; column_count];
+
+    for (index, header) in headers.iter().enumerate() {
+        widths[index] = widths[index].max(display_width(&header.text));
+    }
+    for row in rows {
+        for (index, cell) in row.iter().enumerate() {
+            widths[index] = widths[index].max(display_width(&cell.text));
+        }
+    }
+
+    widths
+}
+
+fn shrink_widths(style: TableStyle, widths: &mut [usize], max_width: Option<u16>) {
+    let Some(max_width) = max_width.map(usize::from) else {
+        return;
+    };
+
+    while table_width(style, widths) > max_width {
+        let Some((index, widest)) = widths
+            .iter()
+            .copied()
+            .enumerate()
+            .max_by_key(|(_, width)| *width)
+        else {
+            break;
         };
-        let color = self.theme.as_ref().map_or(default_color, |theme| {
-            if enabled {
-                to_table_color(theme.success_color)
-            } else {
-                to_table_color(theme.muted_color)
-            }
+
+        if widest <= 3 {
+            break;
+        }
+        widths[index] -= 1;
+    }
+}
+
+fn table_width(style: TableStyle, widths: &[usize]) -> usize {
+    let content_width: usize = widths.iter().sum();
+    match style {
+        TableStyle::Compact => content_width + widths.len().saturating_sub(1) * 2,
+        TableStyle::Markdown | TableStyle::Unicode | TableStyle::Ascii => {
+            content_width + widths.len() * 3 + 1
+        }
+    }
+}
+
+fn render_markdown_table(
+    headers: &[PlainCell],
+    rows: &[Vec<PlainCell>],
+    widths: &[usize],
+) -> String {
+    let mut output = String::new();
+    push_pipe_row(&mut output, headers, widths);
+    output.push('\n');
+    push_markdown_separator(&mut output, headers, widths);
+
+    for row in rows {
+        output.push('\n');
+        push_pipe_row(&mut output, row, widths);
+    }
+
+    output
+}
+
+fn push_markdown_separator(output: &mut String, headers: &[PlainCell], widths: &[usize]) {
+    output.push('|');
+    for (index, width) in widths.iter().copied().enumerate() {
+        output.push(' ');
+        let align = headers
+            .get(index)
+            .map_or(PlainAlign::Left, |cell| cell.align);
+        let marker = markdown_align_marker(align, width.max(3));
+        output.push_str(&marker);
+        output.push(' ');
+        output.push('|');
+    }
+}
+
+fn markdown_align_marker(align: PlainAlign, width: usize) -> String {
+    match align {
+        PlainAlign::Left => "-".repeat(width),
+        PlainAlign::Right => format!("{}:", "-".repeat(width.saturating_sub(1).max(2))),
+        PlainAlign::Center => {
+            let inner = width.saturating_sub(2).max(1);
+            format!(":{}:", "-".repeat(inner))
+        }
+    }
+}
+
+fn render_compact_table(
+    headers: &[PlainCell],
+    rows: &[Vec<PlainCell>],
+    widths: &[usize],
+) -> String {
+    let mut output = String::new();
+    push_compact_row(&mut output, headers, widths);
+    output.push('\n');
+    let separator: Vec<String> = widths.iter().map(|width| "-".repeat(*width)).collect();
+    output.push_str(&separator.join("  "));
+
+    for row in rows {
+        output.push('\n');
+        push_compact_row(&mut output, row, widths);
+    }
+
+    output
+}
+
+fn render_box_table(
+    style: TableStyle,
+    headers: &[PlainCell],
+    rows: &[Vec<PlainCell>],
+    widths: &[usize],
+) -> String {
+    let border = border_chars(style);
+    let mut output = String::new();
+    push_border(
+        &mut output,
+        widths,
+        border.top_left,
+        border.top_sep,
+        border.top_right,
+        border.horizontal,
+    );
+    output.push('\n');
+    push_box_row(&mut output, headers, widths, border.vertical);
+    output.push('\n');
+    push_border(
+        &mut output,
+        widths,
+        border.mid_left,
+        border.mid_sep,
+        border.mid_right,
+        border.horizontal,
+    );
+
+    for row in rows {
+        output.push('\n');
+        push_box_row(&mut output, row, widths, border.vertical);
+    }
+
+    output.push('\n');
+    push_border(
+        &mut output,
+        widths,
+        border.bottom_left,
+        border.bottom_sep,
+        border.bottom_right,
+        border.horizontal,
+    );
+    output
+}
+
+fn border_chars(style: TableStyle) -> BorderChars {
+    match style {
+        TableStyle::Unicode => BorderChars {
+            top_left: '┌',
+            top_sep: '┬',
+            top_right: '┐',
+            mid_left: '├',
+            mid_sep: '┼',
+            mid_right: '┤',
+            bottom_left: '└',
+            bottom_sep: '┴',
+            bottom_right: '┘',
+            horizontal: '─',
+            vertical: '│',
+        },
+        TableStyle::Ascii | TableStyle::Markdown | TableStyle::Compact => BorderChars {
+            top_left: '+',
+            top_sep: '+',
+            top_right: '+',
+            mid_left: '+',
+            mid_sep: '+',
+            mid_right: '+',
+            bottom_left: '+',
+            bottom_sep: '+',
+            bottom_right: '+',
+            horizontal: '-',
+            vertical: '|',
+        },
+    }
+}
+
+fn push_border(
+    output: &mut String,
+    widths: &[usize],
+    left: char,
+    separator: char,
+    right: char,
+    fill: char,
+) {
+    output.push(left);
+    for (index, width) in widths.iter().copied().enumerate() {
+        output.push_str(&fill.to_string().repeat(width + 2));
+        output.push(if index + 1 == widths.len() {
+            right
+        } else {
+            separator
         });
+    }
+}
 
-        let mut cell = Cell::new(label);
-        if self.colors_enabled {
-            cell = cell.fg(color);
+fn push_box_row(output: &mut String, cells: &[PlainCell], widths: &[usize], vertical: char) {
+    output.push(vertical);
+    for (index, width) in widths.iter().copied().enumerate() {
+        output.push(' ');
+        let cell = plain_cell_at(cells, index);
+        output.push_str(&align_text(
+            cell.map_or("", |cell| cell.text.as_str()),
+            width,
+            cell.map_or(PlainAlign::Left, |cell| cell.align),
+        ));
+        output.push(' ');
+        output.push(vertical);
+    }
+}
+
+fn push_pipe_row(output: &mut String, cells: &[PlainCell], widths: &[usize]) {
+    output.push('|');
+    for (index, width) in widths.iter().copied().enumerate() {
+        output.push(' ');
+        let cell = plain_cell_at(cells, index);
+        output.push_str(&align_text(
+            cell.map_or("", |cell| cell.text.as_str()),
+            width,
+            cell.map_or(PlainAlign::Left, |cell| cell.align),
+        ));
+        output.push(' ');
+        output.push('|');
+    }
+}
+
+fn push_compact_row(output: &mut String, cells: &[PlainCell], widths: &[usize]) {
+    for (index, width) in widths.iter().copied().enumerate() {
+        if index > 0 {
+            output.push_str("  ");
         }
-        cell
+        let cell = plain_cell_at(cells, index);
+        output.push_str(&align_text(
+            cell.map_or("", |cell| cell.text.as_str()),
+            width,
+            cell.map_or(PlainAlign::Left, |cell| cell.align),
+        ));
+    }
+}
+
+fn plain_cell_at(cells: &[PlainCell], index: usize) -> Option<&PlainCell> {
+    cells.get(index)
+}
+
+fn align_text(text: &str, width: usize, align: PlainAlign) -> String {
+    let text = truncate_with_ellipsis(text, width);
+    let text_width = display_width(&text);
+    if text_width >= width {
+        return text;
     }
 
-    /// Creates a styled cell for enabled/disabled status (comfy-table version, rich-output build).
-    #[cfg(feature = "rich-output")]
-    fn status_cell_comfy(&self, enabled: bool) -> Cell {
-        let (label, default_color) = if enabled {
-            ("enabled", Color::Green)
-        } else {
-            ("disabled", Color::DarkGrey)
-        };
-
-        let mut cell = Cell::new(label);
-        if self.colors_enabled {
-            cell = cell.fg(default_color);
+    let padding = width - text_width;
+    match align {
+        PlainAlign::Left => format!("{text}{}", " ".repeat(padding)),
+        PlainAlign::Right => format!("{}{text}", " ".repeat(padding)),
+        PlainAlign::Center => {
+            let left = padding / 2;
+            let right = padding - left;
+            format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
         }
-        cell
     }
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn noise_label(noise_pct: Option<f64>) -> String {
+    noise_pct.map_or_else(|| "-".to_string(), |pct| format!("{pct:.1}%"))
 }
 
 /// Summary line formatter for table footers.
@@ -1463,9 +1625,9 @@ mod tests {
     }
 
     #[test]
-    fn test_markdown_uses_comfy_table() {
-        // Markdown style should always use comfy-table (render_comfy),
-        // even when rich-output feature is enabled
+    fn test_markdown_uses_plain_table() {
+        // Markdown style should always use the built-in plain renderer, even
+        // when the rich-output feature is enabled.
         let rows = vec![ScanResultRow {
             file: "test.rs".to_string(),
             line: 1,
