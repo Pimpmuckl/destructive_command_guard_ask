@@ -433,6 +433,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn kubectl_patterns_match_with_global_flags() {
@@ -546,5 +547,102 @@ mod tests {
         assert_allows(&pack, "kubectl get pods");
         assert_allows(&pack, "kubectl describe pod foo");
         assert_allows(&pack, "kubectl logs deployment/myapp");
+    }
+
+    #[test]
+    fn kubectl_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "kubectl delete namespace production", "namespace");
+        assert_blocks(&pack, "kubectl delete ns staging", "namespace");
+        assert_blocks(&pack, "kubectl delete pods --all", "--all");
+        assert_blocks(
+            &pack,
+            "kubectl delete pods --all-namespaces",
+            "ALL namespaces",
+        );
+        assert_blocks(&pack, "kubectl delete pods -A", "ALL namespaces");
+        assert_blocks(&pack, "kubectl drain node-1", "drain");
+        assert_blocks(&pack, "kubectl cordon node-1", "cordon");
+        assert_blocks(
+            &pack,
+            "kubectl taint nodes node-1 key=val:NoExecute",
+            "NoExecute",
+        );
+        assert_blocks(&pack, "kubectl delete deployment web-api", "workload");
+        assert_blocks(&pack, "kubectl delete statefulset db-cluster", "workload");
+        assert_blocks(&pack, "kubectl delete pvc data-volume", "pvc");
+        assert_blocks(&pack, "kubectl delete pv my-volume", "pv");
+        assert_blocks(
+            &pack,
+            "kubectl scale deployment web --replicas=0",
+            "replicas=0",
+        );
+        assert_blocks(
+            &pack,
+            "kubectl delete pod foo --force --grace-period=0",
+            "force",
+        );
+        assert_blocks(&pack, "kubectl apply -f deploy.yaml --force", "force");
+        assert_blocks(&pack, "kubectl delete -f ./manifests/", "directory");
+    }
+
+    #[test]
+    fn kubectl_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl delete namespace production",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(&pack, "kubectl delete pods --all", Severity::High);
+        assert_blocks_with_severity(&pack, "kubectl delete pods -A", Severity::Critical);
+        assert_blocks_with_severity(&pack, "kubectl drain node-1", Severity::High);
+        assert_blocks_with_severity(&pack, "kubectl cordon node-1", Severity::Medium);
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl taint nodes n1 k=v:NoExecute",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "kubectl delete pvc data-vol", Severity::Critical);
+        assert_blocks_with_severity(&pack, "kubectl delete pv my-vol", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl delete pod foo --force --grace-period=0",
+            Severity::Critical,
+        );
+    }
+
+    #[test]
+    fn kubectl_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "kubectl get pods");
+        assert_safe_pattern_matches(&pack, "kubectl describe pod foo");
+        assert_safe_pattern_matches(&pack, "kubectl logs foo");
+        assert_safe_pattern_matches(&pack, "kubectl delete pod foo --dry-run=client");
+        assert_safe_pattern_matches(&pack, "kubectl diff -f deploy.yaml");
+        assert_safe_pattern_matches(&pack, "kubectl explain deployment");
+        assert_safe_pattern_matches(&pack, "kubectl top nodes");
+        assert_safe_pattern_matches(&pack, "kubectl config view");
+        assert_safe_pattern_matches(&pack, "kubectl api-resources");
+        assert_safe_pattern_matches(&pack, "kubectl api-versions");
+        assert_safe_pattern_matches(&pack, "kubectl version");
+    }
+
+    #[test]
+    fn kubectl_dry_run_overrides_destructive() {
+        let pack = create_pack();
+        assert_allows(
+            &pack,
+            "kubectl delete namespace production --dry-run=client",
+        );
+        assert_allows(&pack, "kubectl delete deployment web --dry-run=server");
+    }
+
+    #[test]
+    fn kubectl_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo kubectl");
     }
 }
