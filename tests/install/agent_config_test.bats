@@ -592,6 +592,49 @@ EOF
 # Codex CLI Detection Tests
 # ============================================================================
 
+assert_codex_hooks_has_current_dcg() {
+    [ -f "$CODEX_SETTINGS" ]
+    grep -q '"PreToolUse"' "$CODEX_SETTINGS"
+    grep -q '"matcher": "Bash"' "$CODEX_SETTINGS"
+    grep -q "\"command\": \"$DEST/dcg\"" "$CODEX_SETTINGS"
+}
+
+assert_codex_first_bash_hook_command() {
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    python3 - "$CODEX_SETTINGS" "$1" <<'PYEOF'
+import json
+import sys
+
+hooks_file = sys.argv[1]
+expected = sys.argv[2]
+
+with open(hooks_file, "r") as f:
+    config = json.load(f)
+
+for entry in config["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        actual = entry["hooks"][0]["command"]
+        if actual != expected:
+            raise SystemExit(f"first Bash hook was {actual!r}, expected {expected!r}")
+        raise SystemExit(0)
+
+raise SystemExit("no Bash PreToolUse matcher found")
+PYEOF
+}
+
+create_no_python_path() {
+    local no_python_path="$TEST_TMPDIR/no-python-path"
+    mkdir -p "$no_python_path"
+
+    local tool
+    for tool in dirname cp mv rm mkdir date grep; do
+        ln -s "$(command -v "$tool")" "$no_python_path/$tool"
+    done
+
+    echo "$no_python_path"
+}
+
 @test "configure_codex: skips when not installed" {
     log_test "Testing Codex detection when not installed..."
 
@@ -614,9 +657,11 @@ EOF
     configure_codex
 
     log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "hooks.json: $(cat "$CODEX_SETTINGS" 2>/dev/null || echo 'missing')"
 
-    # Should be unsupported (detected but no pre-execution hooks)
-    [ "$CODEX_STATUS" = "unsupported" ]
+    [ "$CODEX_STATUS" = "created" ]
+    assert_codex_hooks_has_current_dcg
+    assert_codex_first_bash_hook_command "$DEST/dcg"
 }
 
 @test "configure_codex: detects via codex command" {
@@ -634,21 +679,167 @@ EOF
     configure_codex
 
     log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "hooks.json: $(cat "$CODEX_SETTINGS" 2>/dev/null || echo 'missing')"
 
-    # Should be unsupported (detected but no pre-execution hooks)
-    [ "$CODEX_STATUS" = "unsupported" ]
+    [ "$CODEX_STATUS" = "created" ]
+    assert_codex_hooks_has_current_dcg
+    assert_codex_first_bash_hook_command "$DEST/dcg"
 }
 
-@test "configure_codex: reports unsupported (no pre-execution hooks)" {
-    log_test "Testing Codex reports unsupported status..."
+@test "configure_codex: is idempotent when current hook already exists" {
+    log_test "Testing Codex idempotent already status..."
 
     setup_mock_codex
 
     configure_codex
 
-    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "First CODEX_STATUS: $CODEX_STATUS"
+    log_test "First hooks.json: $(cat "$CODEX_SETTINGS" 2>/dev/null || echo 'missing')"
 
-    # Codex CLI does not have pre-execution command hooks
-    # Status should be "unsupported" to indicate detection but no auto-config
-    [ "$CODEX_STATUS" = "unsupported" ]
+    [ "$CODEX_STATUS" = "created" ]
+
+    configure_codex
+
+    log_test "Second CODEX_STATUS: $CODEX_STATUS"
+    log_test "Second hooks.json: $(cat "$CODEX_SETTINGS" 2>/dev/null || echo 'missing')"
+
+    [ "$CODEX_STATUS" = "already" ]
+    assert_codex_hooks_has_current_dcg
+
+    local dcg_count
+    dcg_count=$(grep -oF "$DEST/dcg" "$CODEX_SETTINGS" | wc -l)
+    [ "$dcg_count" -eq 1 ]
+}
+
+@test "configure_codex: merges existing hooks and keeps dcg first" {
+    log_test "Testing Codex merge with existing hooks..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_codex
+    cat > "$CODEX_SETTINGS" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"}
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {"type": "command", "command": "echo read-hook"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "echo post-hook"}
+        ]
+      }
+    ]
+  },
+  "theme": "dark"
+}
+EOF
+
+    log_test "Before hooks.json: $(cat "$CODEX_SETTINGS")"
+
+    configure_codex
+
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "After hooks.json: $(cat "$CODEX_SETTINGS")"
+
+    [ "$CODEX_STATUS" = "merged" ]
+    assert_codex_hooks_has_current_dcg
+    assert_codex_first_bash_hook_command "$DEST/dcg"
+    grep -q "atuin history start" "$CODEX_SETTINGS"
+    grep -q "echo read-hook" "$CODEX_SETTINGS"
+    grep -q "echo post-hook" "$CODEX_SETTINGS"
+    grep -q '"theme": "dark"' "$CODEX_SETTINGS"
+}
+
+@test "configure_codex: updates stale dcg hook path" {
+    log_test "Testing Codex stale dcg path update..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_codex
+    cat > "$CODEX_SETTINGS" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/old/bin/dcg"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    log_test "Before hooks.json: $(cat "$CODEX_SETTINGS")"
+
+    configure_codex
+
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "After hooks.json: $(cat "$CODEX_SETTINGS")"
+
+    [ "$CODEX_STATUS" = "merged" ]
+    assert_codex_hooks_has_current_dcg
+    assert_codex_first_bash_hook_command "$DEST/dcg"
+    if grep -q "/old/bin/dcg" "$CODEX_SETTINGS"; then
+        return 1
+    fi
+}
+
+@test "configure_codex: fails without python3 and preserves existing hooks.json" {
+    log_test "Testing Codex merge failure when python3 is unavailable..."
+
+    setup_mock_codex
+    cat > "$CODEX_SETTINGS" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    local before
+    before=$(cat "$CODEX_SETTINGS")
+    log_test "Before hooks.json: $before"
+
+    # shellcheck disable=SC2031 # Bats runs each test in an isolated subshell.
+    local saved_path="$PATH"
+    PATH="$(create_no_python_path)"
+
+    configure_codex
+    local rc=$?
+
+    PATH="$saved_path"
+
+    local after
+    after=$(cat "$CODEX_SETTINGS")
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "Return code: $rc"
+    log_test "After hooks.json: $after"
+
+    [ "$rc" -eq 1 ]
+    [ "$CODEX_STATUS" = "failed" ]
+    [ "$after" = "$before" ]
+    [ -z "$CODEX_BACKUP" ]
+    if grep -q "$DEST/dcg" "$CODEX_SETTINGS"; then
+        return 1
+    fi
 }

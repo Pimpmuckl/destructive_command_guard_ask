@@ -1524,11 +1524,48 @@ configure_codex() {
   fi
 
   if [ -f "$settings_file" ]; then
-    # Check if dcg is already configured
-    if grep -q '"command".*dcg' "$settings_file" 2>/dev/null; then
-      CODEX_STATUS="already"
-      AUTO_CONFIGURED=1
-      return 0
+    # Check if the exact current dcg hook is already configured. A stale dcg
+    # path must still fall through to the merge path so it can be updated.
+    if command -v python3 >/dev/null 2>&1; then
+      local codex_hook_state
+      codex_hook_state=$(python3 - "$settings_file" "$DEST/dcg" <<'PYEOF'
+import json
+import sys
+
+hooks_file = sys.argv[1]
+dcg_path = sys.argv[2]
+
+try:
+    with open(hooks_file, 'r') as f:
+        config = json.load(f)
+except (IOError, ValueError, json.JSONDecodeError):
+    print("merge")
+    raise SystemExit(0)
+
+pre_tool_use = config.get("hooks", {}).get("PreToolUse", [])
+if not isinstance(pre_tool_use, list):
+    print("merge")
+    raise SystemExit(0)
+
+for entry in pre_tool_use:
+    if not isinstance(entry, dict) or entry.get("matcher") != "Bash":
+        continue
+    hooks = entry.get("hooks", [])
+    if not isinstance(hooks, list):
+        continue
+    for hook in hooks:
+        if isinstance(hook, dict) and hook.get("command") == dcg_path:
+            print("already")
+            raise SystemExit(0)
+
+print("merge")
+PYEOF
+)
+      if [ "$codex_hook_state" = "already" ]; then
+        CODEX_STATUS="already"
+        AUTO_CONFIGURED=1
+        return 0
+      fi
     fi
 
     # hooks.json exists, need to merge
