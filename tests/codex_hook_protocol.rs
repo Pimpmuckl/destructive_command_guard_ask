@@ -381,6 +381,129 @@ fn codex_allow_git_clean_dry_run_not_blocked() {
 }
 
 // ---------------------------------------------------------------------------
+// P2.5 — Regression: tool_use_id (no turn_id) stays on Claude path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn regression_claude_tool_use_id_bash_stays_claude_path() {
+    // A Claude Code payload with tool_use_id but NO turn_id must produce
+    // Claude-shaped output (exit 0 + hookSpecificOutput JSON), NOT Codex
+    // (exit 2 + stderr). If the disambiguator keyed on tool_use_id instead
+    // of turn_id, this would fail.
+    let outcome = run_claude_hook("git reset --hard HEAD~1");
+    assert_eq!(
+        outcome.exit_code, 0,
+        "Claude path must exit 0, not 2\n{outcome}"
+    );
+    assert!(
+        outcome.is_claude_block_shape(),
+        "Claude deny must produce hookSpecificOutput JSON on stdout\n{outcome}"
+    );
+    let json = outcome.stdout_json();
+    assert_eq!(
+        json["hookSpecificOutput"]["permissionDecision"], "deny",
+        "Claude deny must have permissionDecision=deny\n{outcome}"
+    );
+}
+
+#[test]
+fn regression_claude_tool_use_id_launch_process_stays_claude_path() {
+    // Variant with launch-process tool name.
+    let payload = format!(
+        r#"{{
+  "session_id": "sess-claude-test",
+  "transcript_path": "/tmp/claude/transcript.jsonl",
+  "cwd": "/tmp/test-workdir",
+  "permission_mode": "default",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "launch-process",
+  "tool_input": {{ "command": "git reset --hard HEAD~1" }},
+  "tool_use_id": "toolu_01LAUNCH"
+}}"#
+    );
+    let outcome = run_hook_raw(payload.as_bytes(), &[]);
+    assert_eq!(
+        outcome.exit_code, 0,
+        "launch-process Claude path must exit 0\n{outcome}"
+    );
+    assert!(
+        outcome.is_claude_block_shape(),
+        "launch-process Claude deny must produce hookSpecificOutput JSON\n{outcome}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2.4 — Codex warn path: exit=0, no stdout, stderr warns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn codex_warn_path_exits_zero_with_stderr_warning() {
+    // With DCG_POLICY_DEFAULT_MODE=warn, destructive matches become warnings.
+    // Under Codex, warn means: exit 0, no stdout JSON, stderr contains warning.
+    let outcome = run_codex_hook_with_env(
+        "git reset --hard HEAD~1",
+        &[("DCG_POLICY_DEFAULT_MODE", "warn")],
+        &[],
+    );
+    assert_eq!(
+        outcome.exit_code, 0,
+        "Codex warn must exit 0 (not 2)\n{outcome}"
+    );
+    assert!(
+        outcome.stdout.is_empty(),
+        "Codex warn must produce 0 bytes stdout\n{outcome}"
+    );
+    assert!(
+        !outcome.stderr.is_empty(),
+        "Codex warn must produce non-empty stderr\n{outcome}"
+    );
+    assert!(
+        outcome.stderr_contains("WARNING") || outcome.stderr_contains("warn"),
+        "stderr must contain warning text\n{outcome}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// P2.7 — DCG_BYPASS=1 short-circuits before Codex protocol detection
+// ---------------------------------------------------------------------------
+
+#[test]
+fn codex_bypass_exits_zero_silently() {
+    // DCG_BYPASS=1 must cause silent exit 0 even for Codex destructive commands.
+    let outcome = run_codex_hook_with_env(
+        "git reset --hard HEAD~1",
+        &[("DCG_BYPASS", "1")],
+        &[],
+    );
+    assert_eq!(
+        outcome.exit_code, 0,
+        "bypass must exit 0, not 2\n{outcome}"
+    );
+    assert!(
+        outcome.stdout.is_empty(),
+        "bypass must produce no stdout\n{outcome}"
+    );
+}
+
+#[test]
+fn claude_bypass_exits_zero_silently() {
+    // Same for Claude path — bypass silences everything.
+    let outcome = run_claude_hook_with_env(
+        "git reset --hard HEAD~1",
+        &[("DCG_BYPASS", "1")],
+        &[],
+    );
+    assert_eq!(
+        outcome.exit_code, 0,
+        "Claude bypass must exit 0\n{outcome}"
+    );
+    assert!(
+        outcome.stdout.is_empty(),
+        "Claude bypass must produce no stdout\n{outcome}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Hermetic HOME isolation
 // ---------------------------------------------------------------------------
 
