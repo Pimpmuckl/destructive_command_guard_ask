@@ -10,7 +10,9 @@
 //! Falls back to plain text format for non-TTY contexts.
 
 use super::theme::{BorderStyle, Severity, Theme};
-use crate::highlight::{HighlightSpan, format_highlighted_command, format_regex_pattern};
+use crate::highlight::{
+    HighlightSpan, format_highlighted_command, format_markdown_explanation, format_regex_pattern,
+};
 #[cfg(feature = "rich-output")]
 use crate::output::rich_theme::{RichThemeExt, color_to_markup};
 use crate::output::terminal_width;
@@ -206,7 +208,7 @@ impl DenialBox {
         if let Some(explanation) = &self.explanation {
             lines.push(String::new());
             lines.push(format!("[{severity_markup}]Explanation:[/]"));
-            for line in wrap_text(explanation, width) {
+            for line in explanation_lines(explanation, theme.colors_enabled, width) {
                 lines.push(line);
             }
         }
@@ -302,7 +304,7 @@ impl DenialBox {
         if let Some(explanation) = &self.explanation {
             let _ = writeln!(output);
             let _ = writeln!(output, "  Explanation:");
-            for line in wrap_text(explanation, width.saturating_sub(2)) {
+            for line in explanation_lines(explanation, false, width.saturating_sub(2)) {
                 let _ = writeln!(output, "  {line}");
             }
         }
@@ -458,8 +460,9 @@ impl DenialBox {
                 &severity_code
             );
 
-            // Word wrap explanation
-            for line in wrap_text(explanation, width.saturating_sub(4)) {
+            for line in
+                explanation_lines(explanation, theme.colors_enabled, width.saturating_sub(4))
+            {
                 let _ = writeln!(
                     output,
                     "\x1b[{}m\u{2502}\x1b[0m  {}{}  \x1b[{}m\u{2502}\x1b[0m",
@@ -617,7 +620,9 @@ impl DenialBox {
                 explanation_label,
                 padding_for(explanation_label, width.saturating_sub(4))
             );
-            for line in wrap_text(explanation, width.saturating_sub(4)) {
+            for line in
+                explanation_lines(explanation, theme.colors_enabled, width.saturating_sub(4))
+            {
                 let _ = writeln!(
                     output,
                     "|  {}{}  |",
@@ -708,7 +713,9 @@ impl DenialBox {
             let explanation_label = format!("\x1b[1;{}mExplanation:\x1b[0m", &severity_code);
             let width = terminal_width().saturating_sub(4).max(40) as usize;
             let _ = writeln!(output, "  {explanation_label}");
-            for line in wrap_text(explanation, width.saturating_sub(2)) {
+            for line in
+                explanation_lines(explanation, theme.colors_enabled, width.saturating_sub(2))
+            {
                 let _ = writeln!(output, "  {line}");
             }
         }
@@ -843,6 +850,17 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+fn explanation_lines(explanation: &str, use_color: bool, width: usize) -> Vec<String> {
+    let rendered = format_markdown_explanation(explanation, use_color, width);
+
+    #[cfg(feature = "rich-output")]
+    if use_color {
+        return rendered.lines().map(ToOwned::to_owned).collect();
+    }
+
+    wrap_text(&rendered, width)
 }
 
 /// Split a pattern identifier into (pack, pattern) if possible.
@@ -1309,5 +1327,270 @@ mod tests {
         assert!(denial.is_protected_branch);
         assert!(denial.explanation.is_some());
         assert!(denial.allow_once_code.is_some());
+    }
+
+    #[test]
+    fn test_denial_box_allow_once_code_stored() {
+        let span = HighlightSpan::new(0, 16);
+        let denial = DenialBox::new(
+            "git reset --hard HEAD",
+            span,
+            "core.git:reset-hard",
+            Severity::Critical,
+        )
+        .with_allow_once_code("abc123");
+
+        assert_eq!(denial.allow_once_code.as_deref(), Some("abc123"));
+        let output = denial.render_plain();
+        assert!(output.contains("BLOCKED"), "plain render should succeed");
+    }
+
+    #[test]
+    #[cfg(not(feature = "rich-output"))]
+    fn test_denial_box_allow_once_code_does_not_crash_renders() {
+        let theme_unicode = Theme {
+            border_style: BorderStyle::Unicode,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let theme_ascii = Theme {
+            border_style: BorderStyle::Ascii,
+            colors_enabled: false,
+            ..Default::default()
+        };
+
+        let span = HighlightSpan::new(0, 5);
+        let denial = DenialBox::new("rm -rf /", span, "core:rm", Severity::High)
+            .with_allow_once_code("xyz789");
+
+        let unicode = denial.render(&theme_unicode);
+        assert!(
+            !unicode.is_empty(),
+            "unicode render with allow-once should not be empty"
+        );
+
+        let ascii = denial.render(&theme_ascii);
+        assert!(
+            !ascii.is_empty(),
+            "ascii render with allow-once should not be empty"
+        );
+    }
+
+    #[test]
+    fn test_denial_box_matched_span_mid_command() {
+        let cmd = "echo hello && rm -rf / && echo done";
+        let span = HighlightSpan::with_label(14, 23, "rm -rf /");
+        let denial = DenialBox::new(cmd, span, "core:rm_rf", Severity::Critical);
+
+        let output = denial.render_plain();
+        assert!(output.contains("rm -rf /"), "should show the matched text");
+        assert!(output.contains("echo hello"), "should show full command");
+    }
+
+    #[test]
+    #[cfg(not(feature = "rich-output"))]
+    fn test_denial_box_very_long_command_wraps() {
+        let long_cmd = format!("git push --force origin {}", "a".repeat(200));
+        let span = HighlightSpan::new(0, 20);
+        let theme = Theme {
+            border_style: BorderStyle::Unicode,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let denial = DenialBox::new(&long_cmd, span, "core.git:force-push", Severity::High);
+
+        let output = denial.render(&theme);
+        assert!(
+            !output.is_empty(),
+            "should produce output even for long commands"
+        );
+        assert!(
+            output.contains("git push --force"),
+            "should contain start of command"
+        );
+    }
+
+    #[test]
+    fn test_denial_box_empty_pattern_regex_ignored() {
+        let span = HighlightSpan::new(0, 5);
+        let denial =
+            DenialBox::new("rm -rf", span, "core:rm", Severity::High).with_pattern_regex("");
+
+        assert!(denial.pattern_regex.is_none(), "empty regex should be None");
+        let output = denial.render_plain();
+        assert!(!output.contains("Regex:"), "should not show Regex line");
+    }
+
+    #[test]
+    fn test_denial_box_whitespace_pattern_regex_trimmed() {
+        let span = HighlightSpan::new(0, 5);
+        let denial = DenialBox::new("rm -rf", span, "core:rm", Severity::High)
+            .with_pattern_regex("  ^rm\\s+  ");
+
+        assert_eq!(denial.pattern_regex.as_deref(), Some("^rm\\s+"));
+    }
+
+    #[test]
+    fn test_denial_box_empty_explanation_ignored() {
+        let span = HighlightSpan::new(0, 5);
+        let denial =
+            DenialBox::new("rm -rf", span, "core:rm", Severity::High).with_explanation("   ");
+
+        assert!(
+            denial.explanation.is_none(),
+            "whitespace-only explanation should be None"
+        );
+    }
+
+    #[test]
+    fn test_denial_box_plain_render_strips_markdown_explanation() {
+        let span = HighlightSpan::new(0, 16);
+        let denial = DenialBox::new(
+            "git reset --hard HEAD",
+            span,
+            "core.git:reset-hard",
+            Severity::Critical,
+        )
+        .with_explanation(
+            "Use `git stash` before **resetting**.\n- See [docs](https://example.test)",
+        );
+
+        let output = denial.render_plain();
+
+        assert!(output.contains("git stash"));
+        assert!(output.contains("resetting"));
+        assert!(output.contains("docs (https://example.test)"));
+        assert!(!output.contains("`git stash`"));
+        assert!(!output.contains("**resetting**"));
+    }
+
+    #[test]
+    #[cfg(not(feature = "rich-output"))]
+    fn test_denial_box_alternatives_in_all_render_paths() {
+        let span = HighlightSpan::new(0, 16);
+        let alts = vec![
+            "git stash".to_string(),
+            "git reset --soft HEAD~1".to_string(),
+        ];
+        let denial = DenialBox::new(
+            "git reset --hard HEAD",
+            span,
+            "core.git:reset-hard",
+            Severity::High,
+        )
+        .with_alternatives(alts);
+
+        let plain = denial.render_plain();
+        assert!(plain.contains("git stash"), "plain should show alternative");
+        assert!(
+            plain.contains("git reset --soft"),
+            "plain should show second alternative"
+        );
+
+        let theme_unicode = Theme {
+            border_style: BorderStyle::Unicode,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let unicode = denial.render(&theme_unicode);
+        assert!(
+            unicode.contains("git stash"),
+            "unicode should show alternative"
+        );
+
+        let theme_ascii = Theme {
+            border_style: BorderStyle::Ascii,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let ascii = denial.render(&theme_ascii);
+        assert!(ascii.contains("git stash"), "ascii should show alternative");
+    }
+
+    #[test]
+    fn test_denial_box_low_severity_render() {
+        let span = HighlightSpan::new(0, 10);
+        let denial = DenialBox::new("chmod 777 .", span, "core:chmod", Severity::Low);
+
+        let output = denial.render_plain();
+        assert!(
+            output.to_lowercase().contains("low"),
+            "should indicate low severity"
+        );
+    }
+
+    #[test]
+    #[cfg(not(feature = "rich-output"))]
+    fn test_denial_box_minimal_render_contains_essentials() {
+        let theme = Theme {
+            border_style: BorderStyle::None,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let span = HighlightSpan::new(0, 10);
+        let denial = DenialBox::new(
+            "docker rm -f $(docker ps -aq)",
+            span,
+            "containers:rm-all",
+            Severity::High,
+        )
+        .with_explanation("Removes all running containers");
+
+        let output = denial.render(&theme);
+        assert!(output.contains("docker rm"), "minimal should show command");
+        assert!(
+            output.contains("containers"),
+            "minimal should show pack info"
+        );
+    }
+
+    #[test]
+    #[cfg(not(feature = "rich-output"))]
+    fn test_denial_box_protected_branch_all_render_paths() {
+        let span = HighlightSpan::new(0, 16);
+        let denial = DenialBox::new(
+            "git reset --hard",
+            span,
+            "core.git:reset-hard",
+            Severity::Critical,
+        )
+        .with_branch_context("main", true);
+
+        let plain = denial.render_plain();
+        assert!(
+            plain.contains("main"),
+            "plain should show protected branch name"
+        );
+
+        let theme_unicode = Theme {
+            border_style: BorderStyle::Unicode,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let unicode = denial.render(&theme_unicode);
+        assert!(
+            unicode.contains("main"),
+            "unicode should show protected branch"
+        );
+
+        let theme_ascii = Theme {
+            border_style: BorderStyle::Ascii,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let ascii = denial.render(&theme_ascii);
+        assert!(ascii.contains("main"), "ascii should show protected branch");
+
+        // Note: minimal render (BorderStyle::None) doesn't show branch context yet
+        let theme_minimal = Theme {
+            border_style: BorderStyle::None,
+            colors_enabled: false,
+            ..Default::default()
+        };
+        let minimal = denial.render(&theme_minimal);
+        assert!(
+            !minimal.is_empty(),
+            "minimal render with branch context should not crash"
+        );
     }
 }

@@ -2533,11 +2533,12 @@ fn list_packs(
 
                 let status = if info.enabled { "✓" } else { "○" };
                 if verbose {
+                    let description = markdown_single_line_for_cli(&info.description);
                     println!(
                         "    {} {} - {} ({} safe, {} destructive)",
                         status,
                         info.id,
-                        info.description,
+                        description,
                         info.safe_pattern_count,
                         info.destructive_pattern_count
                     );
@@ -2631,6 +2632,36 @@ fn list_packs_rich(pack_list: &[PackInfo], verbose: bool) {
     crate::output::pack_list_tree(&tree_items, verbose)
         .with_theme(&crate::output::auto_theme())
         .render();
+}
+
+#[cfg(not(feature = "rich-output"))]
+fn markdown_single_line_for_cli(text: &str) -> String {
+    crate::highlight::format_markdown_explanation(
+        text,
+        false,
+        usize::from(crate::output::terminal_width()).max(40),
+    )
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn print_markdown_field(label: &str, text: &str, indent: &str, use_color: bool) {
+    let prefix_width = indent.chars().count() + label.chars().count() + 2;
+    let width = usize::from(crate::output::terminal_width())
+        .saturating_sub(prefix_width)
+        .max(20);
+    let rendered = crate::highlight::format_markdown_explanation(text, use_color, width);
+    let mut lines = rendered.lines();
+
+    if let Some(first) = lines.next() {
+        println!("{indent}{label}: {first}");
+        for line in lines {
+            println!("{indent}  {line}");
+        }
+    } else {
+        println!("{indent}{label}:");
+    }
 }
 
 /// Show detailed information about a pack
@@ -2735,7 +2766,8 @@ fn pack_info(
 
     println!("Pack: {}", pack.name);
     println!("ID: {}", pack.id);
-    println!("Description: {}", pack.description);
+    let use_color = crate::output::auto_theme().colors_enabled;
+    print_markdown_field("Description", pack.description, "", use_color);
     println!("Keywords: {}", pack.keywords.join(", "));
     println!();
     println!("Patterns:");
@@ -2746,8 +2778,6 @@ fn pack_info(
     );
 
     if show_patterns {
-        let use_color = crate::output::auto_theme().colors_enabled;
-
         println!();
         println!("Safe patterns:");
         for pattern in &pack.safe_patterns {
@@ -2764,7 +2794,7 @@ fn pack_info(
             println!("  - {name} [{severity_label}] : {regex}");
             println!("    Reason: {}", pattern.reason);
             if let Some(explanation) = pattern.explanation {
-                println!("    Explanation: {explanation}");
+                print_markdown_field("Explanation", explanation, "    ", use_color);
             }
             for suggestion in pattern.suggestions {
                 println!(
@@ -3953,7 +3983,7 @@ fn test_command(
                 }
                 println!("Reason: {}", info.reason);
                 if let Some(ref explanation) = info.explanation {
-                    println!("Explanation: {explanation}");
+                    print_markdown_field("Explanation", explanation, "", use_color);
                 }
                 let source = match info.source {
                     MatchSource::ConfigOverride => "config override",

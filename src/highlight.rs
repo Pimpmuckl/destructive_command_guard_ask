@@ -268,6 +268,31 @@ pub fn format_regex_pattern(pattern: &str, use_color: bool) -> String {
     format_regex_pattern_manual(pattern)
 }
 
+/// Format Markdown explanation text for terminal output.
+///
+/// The rich-output build renders Markdown through `rich_rust::Markdown` when
+/// colors are active. Plain/no-color output falls back to readable text with
+/// Markdown control characters stripped while preserving link URLs.
+#[must_use]
+pub fn format_markdown_explanation(text: &str, use_color: bool, width: usize) -> String {
+    #[cfg(not(feature = "rich-output"))]
+    let _ = (use_color, width);
+
+    let text = text.trim();
+    if text.is_empty() {
+        return String::new();
+    }
+
+    #[cfg(feature = "rich-output")]
+    if use_color {
+        if let Some(rendered) = render_markdown_explanation_rich(text, width) {
+            return rendered;
+        }
+    }
+
+    strip_markdown_formatting(text)
+}
+
 /// Find the raw regex for a built-in pack pattern.
 #[must_use]
 pub fn find_pattern_regex(pack_id: &str, pattern_name: &str) -> Option<String> {
@@ -285,6 +310,125 @@ pub fn find_pattern_regex(pack_id: &str, pattern_name: &str) -> Option<String> {
         .iter()
         .find(|pattern| pattern.name == Some(pattern_name))
         .map(|pattern| pattern.regex.as_str().to_string())
+}
+
+#[cfg(feature = "rich-output")]
+fn render_markdown_explanation_rich(text: &str, width: usize) -> Option<String> {
+    use rich_rust::prelude::{Console, Markdown};
+
+    let markdown = Markdown::new(text).hyperlinks(false);
+    let segments = markdown.render(width.max(1));
+    let mut rendered = Vec::new();
+    if Console::new()
+        .print_segments_to(&mut rendered, &segments)
+        .is_err()
+    {
+        return None;
+    }
+
+    let text = String::from_utf8(rendered).ok()?;
+    let text = text.trim_end_matches(['\r', '\n']).to_string();
+    if text.is_empty() { None } else { Some(text) }
+}
+
+fn strip_markdown_formatting(text: &str) -> String {
+    text.lines()
+        .map(strip_markdown_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn strip_markdown_line(line: &str) -> String {
+    let trimmed = line.trim_start();
+    let leading_len = line.len() - trimmed.len();
+    let leading = &line[..leading_len];
+
+    if let Some(stripped) = strip_markdown_heading(trimmed) {
+        return format!("{leading}{}", strip_markdown_inline(stripped));
+    }
+
+    if let Some(item) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+    {
+        return format!("{leading}- {}", strip_markdown_inline(item));
+    }
+
+    strip_markdown_inline(line)
+}
+
+fn strip_markdown_heading(line: &str) -> Option<&str> {
+    let hash_count = line.chars().take_while(|ch| *ch == '#').count();
+    if hash_count == 0 || hash_count > 6 {
+        return None;
+    }
+
+    let rest = &line[hash_count..];
+    if rest.chars().next().is_some_and(char::is_whitespace) {
+        Some(rest.trim_start())
+    } else {
+        None
+    }
+}
+
+fn strip_markdown_inline(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < text.len() {
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+
+        if ch == '!' {
+            if let Some((replacement, next_index)) = parse_markdown_link(text, index + 1, false) {
+                output.push_str(&replacement);
+                index = next_index;
+                continue;
+            }
+        } else if ch == '[' {
+            if let Some((replacement, next_index)) = parse_markdown_link(text, index, true) {
+                output.push_str(&replacement);
+                index = next_index;
+                continue;
+            }
+        }
+
+        if matches!(ch, '`' | '*' | '_' | '~') {
+            index += ch.len_utf8();
+            continue;
+        }
+
+        output.push(ch);
+        index += ch.len_utf8();
+    }
+
+    output
+}
+
+fn parse_markdown_link(
+    text: &str,
+    open_bracket_index: usize,
+    include_url: bool,
+) -> Option<(String, usize)> {
+    let label_start = open_bracket_index.checked_add(1)?;
+    let label_rest = text.get(label_start..)?;
+    let label_end_relative = label_rest.find(']')?;
+    let label = &label_rest[..label_end_relative];
+    let after_label_index = label_start + label_end_relative + 1;
+    let after_label = text.get(after_label_index..)?;
+    let url_rest = after_label.strip_prefix('(')?;
+    let url_end_relative = url_rest.find(')')?;
+    let url = &url_rest[..url_end_relative];
+    let next_index = after_label_index + 1 + url_end_relative + 1;
+
+    let label = strip_markdown_inline(label);
+    let rendered = if include_url && !url.is_empty() {
+        format!("{label} ({url})")
+    } else {
+        label
+    };
+    Some((rendered, next_index))
 }
 
 #[cfg(feature = "rich-output")]
@@ -611,6 +755,39 @@ mod tests {
         // Note: This test depends on environment state
         // In CI, NO_COLOR might be set, so we just verify the function doesn't panic
         let _ = should_use_color();
+    }
+
+    #[test]
+    fn test_format_markdown_explanation_plain_strips_inline_markup() {
+        let rendered = format_markdown_explanation(
+            "Use `git stash` before **reset**. See [docs](https://example.test).",
+            false,
+            80,
+        );
+
+        assert!(rendered.contains("git stash"));
+        assert!(rendered.contains("reset"));
+        assert!(rendered.contains("docs (https://example.test)"));
+        assert!(!rendered.contains('`'));
+        assert!(!rendered.contains("**"));
+    }
+
+    #[test]
+    fn test_format_markdown_explanation_plain_handles_blocks() {
+        let rendered =
+            format_markdown_explanation("# Danger\n- run `git status`\n* ask **first**", false, 80);
+
+        assert_eq!(
+            rendered, "Danger\n- run git status\n- ask first",
+            "plain fallback should keep readable block structure"
+        );
+    }
+
+    #[test]
+    fn test_format_markdown_explanation_plain_keeps_image_alt_text() {
+        let rendered = format_markdown_explanation("Review ![diagram](file://secret).", false, 80);
+
+        assert_eq!(rendered, "Review diagram.");
     }
 
     // =========================================================================

@@ -680,18 +680,24 @@ fn match_node(info: &MatchInfo) -> TreeNode {
         children.push(TreeNode::new(format!("Matched: {preview}")));
     }
     if let Some(explanation) = info.explanation.as_ref() {
-        children.push(
-            TreeNode::new("Explanation").children(
-                explanation
-                    .lines()
-                    .map(|line| TreeNode::new(line.trim().to_string())),
-            ),
-        );
+        children
+            .push(TreeNode::new("Explanation").children(markdown_explanation_nodes(explanation)));
     }
 
     TreeNode::new("Match")
         .styled("[bold yellow]")
         .children(children)
+}
+
+fn markdown_explanation_nodes(explanation: &str) -> Vec<TreeNode> {
+    let use_color = crate::output::auto_theme().colors_enabled;
+    let width = usize::from(crate::output::terminal_width())
+        .saturating_sub(8)
+        .max(40);
+    crate::highlight::format_markdown_explanation(explanation, use_color, width)
+        .lines()
+        .map(|line| TreeNode::new(line.trim().to_string()))
+        .collect()
 }
 
 fn pack_summary_node(summary: &PackSummary) -> TreeNode {
@@ -935,9 +941,10 @@ fn pack_tree_node(pack: &PackTreeItem, verbose: bool) -> TreeNode {
     let status = if pack.enabled { "●" } else { "○" };
     let style = if pack.enabled { "[green]" } else { "[dim]" };
     let label = if verbose {
+        let description = markdown_single_line(&pack.description);
         format!(
             "{} - {} ({} safe, {} destructive)",
-            pack.id, pack.description, pack.safe_pattern_count, pack.destructive_pattern_count
+            pack.id, description, pack.safe_pattern_count, pack.destructive_pattern_count
         )
     } else {
         format!("{} - {}", pack.id, pack.name)
@@ -958,6 +965,17 @@ fn pack_tree_node(pack: &PackTreeItem, verbose: bool) -> TreeNode {
     }
 
     node
+}
+
+fn markdown_single_line(text: &str) -> String {
+    crate::highlight::format_markdown_explanation(
+        text,
+        false,
+        usize::from(crate::output::terminal_width()).max(40),
+    )
+    .split_whitespace()
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 fn pattern_group_node(title: &str, patterns: &[PackTreePattern]) -> TreeNode {
@@ -1256,7 +1274,10 @@ mod tests {
                 match_start: Some(0),
                 match_end: Some(16),
                 matched_text_preview: Some("git reset --hard".to_string()),
-                explanation: Some("Rewrites the worktree and index.".to_string()),
+                explanation: Some(
+                    "Rewrites `HEAD` and **discards** changes. See [docs](https://example.test)."
+                        .to_string(),
+                ),
             }),
             allowlist_info: None,
             pack_summary: Some(PackSummary {
@@ -1277,6 +1298,10 @@ mod tests {
         assert!(output.contains("Command"));
         assert!(output.contains("Rule ID: core.git:reset-hard"));
         assert!(output.contains("Severity: Critical"));
+        assert!(output.contains("Rewrites HEAD and discards changes"));
+        assert!(output.contains("docs (https://example.test)"));
+        assert!(!output.contains("`HEAD`"));
+        assert!(!output.contains("**discards**"));
         assert!(output.contains("Pipeline Trace"));
         assert!(output.contains("full_evaluation (1.00ms)"));
         assert!(output.contains("matched: core.git"));
