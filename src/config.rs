@@ -1298,44 +1298,97 @@ impl Default for AllowlistRule {
 /// Parse a human-readable TTL duration string into seconds.
 ///
 /// Supported formats:
+/// - Seconds: "30", "30s", "30 sec", "30 seconds"
 /// - Minutes: "30m", "30min", "30 minutes", "30 minute"
 /// - Hours: "4h", "4hr", "4 hours", "4 hour"
 /// - Days: "7d", "7 day", "7 days"
 /// - Weeks: "1w", "1 week", "1 weeks"
+/// - Combined: "1h30m", "1 hour 30 minutes", "2d4h"
 ///
 /// # Errors
 ///
 /// Returns an error if the format is invalid or the number cannot be parsed.
 pub fn parse_ttl_duration(s: &str) -> Result<u64, String> {
     let s = s.trim().to_lowercase();
+    if s.is_empty() {
+        return Err("TTL duration cannot be empty".to_string());
+    }
 
-    // Try to extract number and unit
-    let (num_str, unit) = if let Some(pos) = s.find(|c: char| !c.is_ascii_digit()) {
-        let (n, u) = s.split_at(pos);
-        (n.trim(), u.trim())
-    } else {
-        // No unit found - assume seconds
-        return s
+    if s.chars().all(|c| c.is_ascii_digit()) {
+        let seconds = s
             .parse::<u64>()
-            .map_err(|_| format!("invalid TTL number: '{s}'"));
-    };
+            .map_err(|_| format!("invalid TTL number: '{s}'"))?;
+        return if seconds == 0 {
+            Err("TTL duration must be greater than zero".to_string())
+        } else {
+            Ok(seconds)
+        };
+    }
 
-    let num: u64 = num_str
-        .parse()
-        .map_err(|_| format!("invalid TTL number: '{num_str}'"))?;
+    let bytes = s.as_bytes();
+    let mut pos = 0;
+    let mut total_seconds = 0_u64;
 
-    // Match unit
-    let multiplier = match unit {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
-        "d" | "day" | "days" => 86400,
-        "w" | "week" | "weeks" => 604_800,
-        _ => return Err(format!("unknown TTL unit: '{unit}'")),
-    };
+    while pos < bytes.len() {
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        if pos >= bytes.len() {
+            break;
+        }
 
-    num.checked_mul(multiplier)
-        .ok_or_else(|| format!("TTL overflow: {num} * {multiplier}"))
+        let number_start = pos;
+        while pos < bytes.len() && bytes[pos].is_ascii_digit() {
+            pos += 1;
+        }
+        if number_start == pos {
+            return Err(format!("expected TTL number near '{}'", &s[number_start..]));
+        }
+
+        let num_str = &s[number_start..pos];
+        let num = num_str
+            .parse::<u64>()
+            .map_err(|_| format!("invalid TTL number: '{num_str}'"))?;
+
+        while pos < bytes.len() && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+        let unit_start = pos;
+        while pos < bytes.len() && bytes[pos].is_ascii_alphabetic() {
+            pos += 1;
+        }
+        if unit_start == pos {
+            return Err(format!("missing TTL unit after '{num_str}'"));
+        }
+
+        let unit = &s[unit_start..pos];
+        let multiplier = match unit {
+            "s" | "sec" | "secs" | "second" | "seconds" => 1,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60,
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
+            "d" | "day" | "days" => 86_400,
+            "w" | "week" | "weeks" => 604_800,
+            _ => return Err(format!("unknown TTL unit: '{unit}'")),
+        };
+
+        let component = num
+            .checked_mul(multiplier)
+            .ok_or_else(|| format!("TTL overflow: {num} * {multiplier}"))?;
+        total_seconds = total_seconds
+            .checked_add(component)
+            .ok_or_else(|| "TTL overflow while adding duration components".to_string())?;
+
+        if pos < bytes.len() && !bytes[pos].is_ascii_whitespace() && !bytes[pos].is_ascii_digit() {
+            let unexpected = s[pos..].chars().next().unwrap_or('\0');
+            return Err(format!("unexpected TTL character: '{unexpected}'"));
+        }
+    }
+
+    if total_seconds == 0 {
+        Err("TTL duration must be greater than zero".to_string())
+    } else {
+        Ok(total_seconds)
+    }
 }
 
 impl AllowlistRule {
@@ -5407,6 +5460,61 @@ enabled = false
             ..Default::default()
         };
         assert!(rule.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parse_ttl_duration_accepts_cli_style_combined_units() {
+        assert_eq!(parse_ttl_duration("1h30m").unwrap(), 5_400);
+        assert_eq!(parse_ttl_duration("1 hour 30 minutes").unwrap(), 5_400);
+        assert_eq!(parse_ttl_duration("2d4h").unwrap(), 187_200);
+        assert_eq!(parse_ttl_duration("1w 2d 3h 4m 5s").unwrap(), 788_645);
+    }
+
+    #[test]
+    fn test_parse_ttl_duration_preserves_legacy_single_units() {
+        assert_eq!(parse_ttl_duration("30").unwrap(), 30);
+        assert_eq!(parse_ttl_duration("30 seconds").unwrap(), 30);
+        assert_eq!(parse_ttl_duration("30m").unwrap(), 1_800);
+        assert_eq!(parse_ttl_duration("4 hr").unwrap(), 14_400);
+        assert_eq!(parse_ttl_duration("7 days").unwrap(), 604_800);
+    }
+
+    #[test]
+    fn test_parse_ttl_duration_rejects_invalid_or_empty_values() {
+        assert!(parse_ttl_duration("").unwrap_err().contains("empty"));
+        assert!(
+            parse_ttl_duration("0h")
+                .unwrap_err()
+                .contains("greater than zero")
+        );
+        assert!(
+            parse_ttl_duration("1h thirty minutes")
+                .unwrap_err()
+                .contains("number")
+        );
+        assert!(
+            parse_ttl_duration("1x")
+                .unwrap_err()
+                .contains("unknown TTL unit")
+        );
+        assert!(
+            parse_ttl_duration("1h30")
+                .unwrap_err()
+                .contains("missing TTL unit")
+        );
+    }
+
+    #[test]
+    fn test_allowlist_rule_validation_accepts_combined_ttl() {
+        let rule = AllowlistRule {
+            pattern: "test".to_string(),
+            ttl: Some("1h30m".to_string()),
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        assert!(rule.validate().is_ok());
+        assert_eq!(rule.effective_ttl_seconds(), Some(5_400));
     }
 
     #[test]
