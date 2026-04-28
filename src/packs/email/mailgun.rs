@@ -155,6 +155,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -252,5 +253,80 @@ mod tests {
             "curl -X DELETE https://api.mailgun.net/v3/example.com/unsubscribes/user@test.com",
             "mailgun-delete-suppression",
         );
+    }
+
+    #[test]
+    fn mailgun_blocks_with_correct_severity() {
+        let pack = create_pack();
+        // Domain deletion - Critical
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/domains/example.com",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl --request DELETE https://api.mailgun.net/v3/domains/sandbox123.mailgun.org",
+            Severity::Critical,
+        );
+        // Route deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/routes/abc123",
+            Severity::High,
+        );
+        // Mailing list deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/lists/newsletter@example.com",
+            Severity::High,
+        );
+        // Template deletion - Medium
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/example.com/templates/welcome",
+            Severity::Medium,
+        );
+        // Webhook deletion - Medium
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/domains/example.com/webhooks/clicked",
+            Severity::Medium,
+        );
+        // Credential deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/domains/example.com/credentials/postmaster@example.com",
+            Severity::High,
+        );
+        // Tag deletion - Low
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/example.com/tags/marketing",
+            Severity::Low,
+        );
+        // Suppression deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/example.com/bounces/user@test.com",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/example.com/complaints/user@test.com",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.mailgun.net/v3/example.com/unsubscribes/user@test.com",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn mailgun_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

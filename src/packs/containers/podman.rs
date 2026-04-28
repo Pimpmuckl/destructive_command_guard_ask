@@ -215,14 +215,11 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
     fn podman_patterns_match_with_global_flags() {
-        // Same class bug as cloud packs and docker: Podman global flags
-        // (`--remote`, `--url`, `--connection`, `--log-level`, `--storage-opt`)
-        // break every `podman\s+<sub>` pattern when placed before the
-        // subcommand.
         let pack = create_pack();
         assert_blocks(
             &pack,
@@ -246,8 +243,8 @@ mod tests {
         let pack = create_pack();
         assert_blocks(&pack, "podman rm -f container", "forcibly removes");
         assert_blocks(&pack, "podman rm --force container", "forcibly removes");
-        assert_blocks(&pack, "podman rm -af", "forcibly removes"); // Combined flags (all + force)
-        assert_blocks(&pack, "podman rm -vf container", "forcibly removes"); // Combined flags
+        assert_blocks(&pack, "podman rm -af", "forcibly removes");
+        assert_blocks(&pack, "podman rm -vf container", "forcibly removes");
         assert_blocks(&pack, "podman rm -fv container", "forcibly removes");
 
         assert_allows(&pack, "podman rm container");
@@ -258,8 +255,55 @@ mod tests {
         let pack = create_pack();
         assert_blocks(&pack, "podman rmi -f image", "forcibly removes");
         assert_blocks(&pack, "podman rmi --force image", "forcibly removes");
-        assert_blocks(&pack, "podman rmi -nf image", "forcibly removes"); // Combined flags
+        assert_blocks(&pack, "podman rmi -nf image", "forcibly removes");
 
         assert_allows(&pack, "podman rmi image");
+    }
+
+    #[test]
+    fn podman_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "podman system prune", "prune");
+        assert_blocks(&pack, "podman system prune --all", "prune");
+        assert_blocks(&pack, "podman volume prune", "prune");
+        assert_blocks(&pack, "podman pod prune", "prune");
+        assert_blocks(&pack, "podman image prune", "prune");
+        assert_blocks(&pack, "podman container prune", "prune");
+        assert_blocks(&pack, "podman volume rm my-volume", "volume");
+    }
+
+    #[test]
+    fn podman_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "podman system prune -a", Severity::High);
+        assert_blocks_with_severity(&pack, "podman volume prune", Severity::Critical);
+        assert_blocks_with_severity(&pack, "podman pod prune", Severity::Medium);
+        assert_blocks_with_severity(&pack, "podman image prune", Severity::Medium);
+        assert_blocks_with_severity(&pack, "podman container prune", Severity::Medium);
+        assert_blocks_with_severity(&pack, "podman volume rm data-vol", Severity::High);
+        assert_blocks_with_severity(&pack, "podman rm -f container", Severity::High);
+        assert_blocks_with_severity(&pack, "podman rmi -f image", Severity::High);
+    }
+
+    #[test]
+    fn podman_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "podman ps");
+        assert_safe_pattern_matches(&pack, "podman ps -a");
+        assert_safe_pattern_matches(&pack, "podman images");
+        assert_safe_pattern_matches(&pack, "podman logs mycontainer");
+        assert_safe_pattern_matches(&pack, "podman inspect mycontainer");
+        assert_safe_pattern_matches(&pack, "podman build -t app .");
+        assert_safe_pattern_matches(&pack, "podman pull nginx:latest");
+        assert_safe_pattern_matches(&pack, "podman run --rm hello-world");
+        assert_safe_pattern_matches(&pack, "podman exec -it container bash");
+    }
+
+    #[test]
+    fn podman_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo podman");
     }
 }

@@ -153,6 +153,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -209,5 +210,35 @@ mod tests {
         );
         assert_blocks_with_pattern(&pack, "rabbitmqctl reset", "rabbitmqctl-reset");
         assert_blocks_with_pattern(&pack, "rabbitmqctl force_reset", "rabbitmqctl-force-reset");
+    }
+
+    #[test]
+    fn rabbitmq_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "rabbitmqadmin delete queue name=jobs",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "rabbitmqadmin delete exchange name=events",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "rabbitmqadmin purge queue name=jobs",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "rabbitmqctl delete_vhost /prod", Severity::Critical);
+        assert_blocks_with_severity(&pack, "rabbitmqctl reset", Severity::Critical);
+        assert_blocks_with_severity(&pack, "rabbitmqctl force_reset", Severity::Critical);
+    }
+
+    #[test]
+    fn rabbitmq_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

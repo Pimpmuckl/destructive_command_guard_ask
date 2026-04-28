@@ -295,6 +295,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -310,8 +311,57 @@ mod tests {
         );
         assert_blocks(&pack, "delete from users", "DELETE without WHERE");
 
-        // Should NOT block if WHERE clause is present
         assert_allows(&pack, "DELETE FROM users WHERE id = 1;");
         assert_allows(&pack, "DELETE FROM users WHERE active = false");
+    }
+
+    #[test]
+    fn postgresql_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "DROP DATABASE mydb", "DROP DATABASE");
+        assert_blocks(&pack, "DROP DATABASE IF EXISTS mydb", "DROP DATABASE");
+        assert_blocks(&pack, "DROP TABLE users", "DROP TABLE");
+        assert_blocks(&pack, "DROP TABLE IF EXISTS users CASCADE", "DROP TABLE");
+        assert_blocks(&pack, "DROP SCHEMA public CASCADE", "DROP SCHEMA");
+        assert_blocks(&pack, "TRUNCATE TABLE users", "TRUNCATE");
+        assert_blocks(&pack, "TRUNCATE users", "TRUNCATE");
+        assert_blocks(&pack, "dropdb mydb", "dropdb");
+        assert_blocks(&pack, "pg_dump --clean mydb", "pg_dump --clean");
+        assert_blocks(&pack, "pg_dump -c mydb", "pg_dump --clean");
+    }
+
+    #[test]
+    fn postgresql_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "DROP DATABASE mydb", Severity::Critical);
+        assert_blocks_with_severity(&pack, "DROP TABLE users", Severity::High);
+        assert_blocks_with_severity(&pack, "DROP SCHEMA public", Severity::Critical);
+        assert_blocks_with_severity(&pack, "TRUNCATE TABLE users", Severity::High);
+        assert_blocks_with_severity(&pack, "DELETE FROM users;", Severity::High);
+        assert_blocks_with_severity(&pack, "dropdb mydb", Severity::Critical);
+        assert_blocks_with_severity(&pack, "pg_dump --clean mydb", Severity::High);
+    }
+
+    #[test]
+    fn postgresql_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "pg_dump mydb > backup.sql");
+        assert_safe_pattern_matches(&pack, "SELECT * FROM users;");
+        assert_safe_pattern_matches(&pack, "SELECT COUNT(*) FROM orders;");
+    }
+
+    #[test]
+    fn postgresql_case_insensitive() {
+        let pack = create_pack();
+        assert_blocks(&pack, "drop database mydb", "DROP DATABASE");
+        assert_blocks(&pack, "drop table users", "DROP TABLE");
+        assert_blocks(&pack, "truncate table users", "TRUNCATE");
+    }
+
+    #[test]
+    fn postgresql_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

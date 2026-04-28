@@ -134,6 +134,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -194,5 +195,25 @@ mod tests {
             r#"curl -X POST https://api.newrelic.com/graphql -d '{"query":"mutation { deleteEntity(guid: \"abc\") }"}'"#,
             "newrelic-graphql-delete-mutation",
         );
+    }
+
+    #[test]
+    fn newrelic_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "newrelic entity delete 123", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "newrelic apm application delete 123",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "newrelic workload delete 123", Severity::High);
+        assert_blocks_with_severity(&pack, "newrelic synthetics delete 123", Severity::High);
+    }
+
+    #[test]
+    fn newrelic_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

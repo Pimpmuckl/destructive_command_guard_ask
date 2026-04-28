@@ -190,6 +190,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -308,5 +309,124 @@ mod tests {
             "azcopy sync --delete-destination=true ./src https://dest.blob.core.windows.net/",
             "azcopy-sync-delete",
         );
+    }
+
+    #[test]
+    fn azure_blob_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "az storage container delete -n mycontainer",
+            "az storage container delete removes an Azure storage container",
+        );
+        assert_blocks(
+            &pack,
+            "az storage blob delete-batch -s mycontainer",
+            "az storage blob delete-batch removes multiple blobs",
+        );
+        assert_blocks(
+            &pack,
+            "az storage blob delete -c mycontainer -n myblob",
+            "az storage blob delete removes a blob from Azure storage",
+        );
+        assert_blocks(
+            &pack,
+            "az storage account delete -n myaccount",
+            "az storage account delete removes an entire Azure storage account",
+        );
+        assert_blocks(
+            &pack,
+            "azcopy remove https://account.blob.core.windows.net/container/blob",
+            "azcopy remove deletes files from Azure storage",
+        );
+        assert_blocks(
+            &pack,
+            "azcopy sync ./local https://account.blob.core.windows.net/container --delete-destination true",
+            "azcopy sync --delete-destination removes destination files not in source",
+        );
+    }
+
+    #[test]
+    fn azure_blob_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "az storage container delete -n mycontainer",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "az storage blob delete-batch -s mycontainer",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "az storage blob delete -c mycontainer -n myblob",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "az storage account delete -n myaccount",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "azcopy remove https://account.blob.core.windows.net/container/blob",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "azcopy sync ./local https://account.blob.core.windows.net/container --delete-destination true",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn azure_blob_all_safe_patterns_match() {
+        let pack = create_pack();
+        // az storage container safe
+        assert_safe_pattern_matches(&pack, "az storage container list --account-name myaccount");
+        assert_safe_pattern_matches(&pack, "az storage container show -n mycontainer");
+        assert_safe_pattern_matches(&pack, "az storage container exists -n mycontainer");
+        // az storage blob safe
+        assert_safe_pattern_matches(&pack, "az storage blob list -c mycontainer");
+        assert_safe_pattern_matches(&pack, "az storage blob show -c mycontainer -n myblob");
+        assert_safe_pattern_matches(&pack, "az storage blob exists -c mycontainer -n myblob");
+        assert_safe_pattern_matches(
+            &pack,
+            "az storage blob download -c mycontainer -n myblob -f local.txt",
+        );
+        assert_safe_pattern_matches(
+            &pack,
+            "az storage blob download-batch -d ./local -s mycontainer",
+        );
+        assert_safe_pattern_matches(&pack, "az storage blob url -c mycontainer -n myblob");
+        assert_safe_pattern_matches(
+            &pack,
+            "az storage blob metadata show -c mycontainer -n myblob",
+        );
+        // az storage account safe
+        assert_safe_pattern_matches(&pack, "az storage account list");
+        assert_safe_pattern_matches(&pack, "az storage account show -n myaccount");
+        assert_safe_pattern_matches(&pack, "az storage account keys list -n myaccount");
+        // azcopy safe
+        assert_safe_pattern_matches(&pack, "azcopy list https://account.blob.core.windows.net/");
+        assert_safe_pattern_matches(
+            &pack,
+            "azcopy copy ./local https://account.blob.core.windows.net/container",
+        );
+        assert_safe_pattern_matches(&pack, "azcopy jobs list");
+        assert_safe_pattern_matches(&pack, "azcopy jobs show jobid");
+        assert_safe_pattern_matches(&pack, "azcopy login");
+        assert_safe_pattern_matches(&pack, "azcopy env");
+    }
+
+    #[test]
+    fn azure_blob_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

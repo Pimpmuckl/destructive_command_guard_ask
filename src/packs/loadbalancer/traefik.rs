@@ -38,7 +38,7 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         ),
         safe_pattern!(
             "traefik-api-read",
-            r"curl\b.*\btraefik\b.*\b/api/(?:overview|entrypoints|routers|services|middlewares|version|rawdata)"
+            r"curl\b(?!.*\s(?:-X|--request)\s*(?:DELETE|PUT|POST|PATCH)\b).*\btraefik\b.*\b/api/(?:overview|entrypoints|routers|services|middlewares|version|rawdata)"
         ),
         // Docker inspect/logs (read-only)
         safe_pattern!(
@@ -180,6 +180,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -227,5 +228,52 @@ mod tests {
             "traefik-config-delete",
         );
         assert_blocks_with_pattern(&pack, "systemctl stop traefik", "traefik-systemctl-stop");
+    }
+
+    #[test]
+    fn traefik_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "docker stop traefik", Severity::Critical);
+        assert_blocks_with_severity(&pack, "docker kill traefik", Severity::Critical);
+        assert_blocks_with_severity(&pack, "docker rm traefik", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "docker-compose down traefik",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl delete pod traefik-abc123",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl delete deployment traefik",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "kubectl delete ingressroute my-route",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "rm /etc/traefik/traefik.yml",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE http://traefik:8080/api/http/routers/my-router@file",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "systemctl stop traefik", Severity::High);
+        assert_blocks_with_severity(&pack, "service traefik stop", Severity::High);
+    }
+
+    #[test]
+    fn traefik_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

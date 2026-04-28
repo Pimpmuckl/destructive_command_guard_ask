@@ -121,6 +121,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -132,10 +133,6 @@ mod tests {
 
     #[test]
     fn compound_command_dot_command_does_not_bypass_drop() {
-        // Before the fix: `.dump` anywhere in the command matched the safe
-        // pattern and short-circuited the DROP check. Now the destructive
-        // DROP TABLE takes precedence because the dot-command safe pattern
-        // requires the dot-command to be properly anchored.
         let pack = create_pack();
         let m = pack
             .check("sqlite3 mydb \"DROP TABLE foo; .dump\"")
@@ -163,5 +160,46 @@ mod tests {
             pack.matches_safe("sqlite3 mydb \".schema users\""),
             "sqlite3 \".schema users\" is still safe"
         );
+    }
+
+    #[test]
+    fn sqlite_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "DROP TABLE users", "DROP TABLE");
+        assert_blocks(&pack, "DROP TABLE IF EXISTS users", "DROP TABLE");
+        assert_blocks(&pack, "DELETE FROM users;", "DELETE without WHERE");
+        assert_blocks(&pack, "DELETE FROM users", "DELETE without WHERE");
+        assert_blocks(&pack, "sqlite3 mydb < init.sql", "SQL from file");
+    }
+
+    #[test]
+    fn sqlite_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "DROP TABLE users", Severity::Critical);
+        assert_blocks_with_severity(&pack, "DELETE FROM users;", Severity::Critical);
+        assert_blocks_with_severity(&pack, "sqlite3 mydb < init.sql", Severity::High);
+    }
+
+    #[test]
+    fn sqlite_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "SELECT * FROM users;");
+        assert_safe_pattern_matches(&pack, ".schema users");
+        assert_safe_pattern_matches(&pack, ".tables");
+        assert_safe_pattern_matches(&pack, "EXPLAIN SELECT * FROM users;");
+    }
+
+    #[test]
+    fn sqlite_delete_with_where_is_allowed() {
+        let pack = create_pack();
+        assert_allows(&pack, "DELETE FROM users WHERE id = 1;");
+        assert_allows(&pack, "DELETE FROM users WHERE active = false");
+    }
+
+    #[test]
+    fn sqlite_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

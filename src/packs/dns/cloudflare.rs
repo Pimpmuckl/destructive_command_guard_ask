@@ -105,6 +105,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -153,5 +154,81 @@ mod tests {
             "terraform destroy -target=cloudflare_record.main",
             "cloudflare-terraform-destroy-record",
         );
+    }
+
+    #[test]
+    fn cloudflare_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "wrangler dns-records delete --zone-id abc --record-id def",
+            "wrangler dns-records delete removes a Cloudflare DNS record",
+        );
+        assert_blocks(
+            &pack,
+            "curl -X DELETE https://api.cloudflare.com/client/v4/zones/abc/dns_records/def",
+            "curl -X DELETE against /dns_records/{id} deletes a Cloudflare DNS record",
+        );
+        assert_blocks(
+            &pack,
+            "curl -X DELETE https://api.cloudflare.com/client/v4/zones/abc",
+            "curl -X DELETE against /zones/{id} deletes a Cloudflare zone",
+        );
+        assert_blocks(
+            &pack,
+            "terraform destroy -target=cloudflare_record.main",
+            "terraform destroy -target=cloudflare_record deletes specific DNS records",
+        );
+    }
+
+    #[test]
+    fn cloudflare_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "wrangler dns-records delete --zone-id abc --record-id def",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.cloudflare.com/client/v4/zones/abc/dns_records/def",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.cloudflare.com/client/v4/zones/abc",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "terraform destroy -target=cloudflare_record.main",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn cloudflare_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "wrangler dns-records list --zone-id abc");
+        assert_safe_pattern_matches(&pack, "wrangler dns-records list");
+        assert_safe_pattern_matches(&pack, "wrangler whoami");
+        assert_safe_pattern_matches(&pack, "wrangler --config wrangler.toml whoami");
+        assert_safe_pattern_matches(
+            &pack,
+            "curl -X GET https://api.cloudflare.com/client/v4/zones",
+        );
+        assert_safe_pattern_matches(
+            &pack,
+            "curl -X GET https://api.cloudflare.com/client/v4/zones/abc/dns_records",
+        );
+    }
+
+    #[test]
+    fn cloudflare_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

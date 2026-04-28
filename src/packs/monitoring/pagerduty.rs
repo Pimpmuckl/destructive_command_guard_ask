@@ -141,6 +141,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -189,5 +190,31 @@ mod tests {
             "curl -X DELETE https://api.pagerduty.com/schedules/P234",
             "pagerduty-api-delete-schedule",
         );
+    }
+
+    #[test]
+    fn pagerduty_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "pd service delete P123", Severity::Critical);
+        assert_blocks_with_severity(&pack, "pd schedule delete P234", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "pd escalation-policy delete P345",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "pd user delete P456", Severity::High);
+        assert_blocks_with_severity(&pack, "pd team delete P567", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.pagerduty.com/services/P123",
+            Severity::Critical,
+        );
+    }
+
+    #[test]
+    fn pagerduty_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

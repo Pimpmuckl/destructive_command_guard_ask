@@ -152,6 +152,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -206,5 +207,92 @@ mod tests {
             "aws s3api delete-objects --bucket bucket --delete file://d.json",
             "s3api-delete-objects",
         );
+    }
+
+    #[test]
+    fn s3_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "aws s3 rb s3://my-bucket", "aws s3 rb removes an S3 bucket");
+        assert_blocks(
+            &pack,
+            "aws s3 rb s3://my-bucket --force",
+            "aws s3 rb removes an S3 bucket",
+        );
+        assert_blocks(&pack, "aws s3 rm s3://bucket/key", "aws s3 rm deletes S3 objects");
+        assert_blocks(
+            &pack,
+            "aws s3 rm s3://bucket --recursive",
+            "aws s3 rm deletes S3 objects",
+        );
+        assert_blocks(
+            &pack,
+            "aws s3 sync s3://src s3://dest --delete",
+            "aws s3 sync --delete removes destination objects",
+        );
+        assert_blocks(
+            &pack,
+            "aws s3api delete-bucket --bucket bucket",
+            "aws s3api delete-bucket permanently deletes a bucket",
+        );
+        assert_blocks(
+            &pack,
+            "aws s3api delete-object --bucket bucket --key key",
+            "aws s3api delete-object permanently deletes an object",
+        );
+        assert_blocks(
+            &pack,
+            "aws s3api delete-objects --bucket bucket --delete file://d.json",
+            "aws s3api delete-objects permanently deletes multiple objects",
+        );
+    }
+
+    #[test]
+    fn s3_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "aws s3 rb s3://my-bucket", Severity::Critical);
+        assert_blocks_with_severity(&pack, "aws s3 rm s3://bucket/key", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "aws s3 sync s3://src s3://dest --delete",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws s3api delete-bucket --bucket bucket",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws s3api delete-object --bucket b --key k",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws s3api delete-objects --bucket b --delete file://d.json",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn s3_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "aws s3 ls");
+        assert_safe_pattern_matches(&pack, "aws s3 ls s3://bucket");
+        assert_safe_pattern_matches(&pack, "aws s3 cp file.txt s3://bucket/key");
+        assert_safe_pattern_matches(&pack, "aws s3 presign s3://bucket/key");
+        assert_safe_pattern_matches(&pack, "aws s3 mb s3://new-bucket");
+        assert_safe_pattern_matches(&pack, "aws s3api list-objects-v2 --bucket bucket");
+        assert_safe_pattern_matches(&pack, "aws s3api list-objects --bucket bucket");
+        assert_safe_pattern_matches(&pack, "aws s3api get-object --bucket b --key k out");
+        assert_safe_pattern_matches(&pack, "aws s3api head-object --bucket b --key k");
+    }
+
+    #[test]
+    fn s3_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

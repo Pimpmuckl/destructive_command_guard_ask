@@ -129,6 +129,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -168,5 +169,60 @@ mod tests {
             "borg-recreate",
         );
         assert_blocks_with_pattern(&pack, "borg break-lock repo", "borg-break-lock");
+    }
+
+    #[test]
+    fn borg_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "borg delete repo::old", "borg delete removes archives");
+        assert_blocks(&pack, "borg prune repo", "borg prune removes archives");
+        assert_blocks(&pack, "borg compact repo", "borg compact reclaims space");
+        assert_blocks(
+            &pack,
+            "borg recreate repo::archive --exclude /tmp",
+            "borg recreate can drop data",
+        );
+        assert_blocks(
+            &pack,
+            "borg break-lock repo",
+            "borg break-lock forces removal",
+        );
+    }
+
+    #[test]
+    fn borg_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "borg delete repo::old", Severity::Critical);
+        assert_blocks_with_severity(&pack, "borg prune repo", Severity::High);
+        assert_blocks_with_severity(&pack, "borg compact repo", Severity::Medium);
+        assert_blocks_with_severity(
+            &pack,
+            "borg recreate repo::archive --exclude /tmp",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "borg break-lock repo", Severity::Medium);
+    }
+
+    #[test]
+    fn borg_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "borg list");
+        assert_safe_pattern_matches(&pack, "borg info repo");
+        assert_safe_pattern_matches(&pack, "borg diff repo::a repo::b");
+        assert_safe_pattern_matches(&pack, "borg check repo");
+        assert_safe_pattern_matches(&pack, "borg create repo::archive /data");
+        assert_safe_pattern_matches(&pack, "borg extract repo::archive");
+        assert_safe_pattern_matches(&pack, "borg mount repo::archive /mnt");
+        // With flags before subcommand
+        assert_safe_pattern_matches(&pack, "borg --verbose list ::");
+        assert_safe_pattern_matches(&pack, "borg -v info repo::archive");
+    }
+
+    #[test]
+    fn borg_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

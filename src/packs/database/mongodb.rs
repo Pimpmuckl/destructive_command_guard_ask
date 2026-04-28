@@ -161,6 +161,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -184,15 +185,10 @@ mod tests {
 
     #[test]
     fn compound_read_plus_drop_does_not_bypass() {
-        // These compound commands used to short-circuit on the safe `.find(`
-        // match and skip the destructive `.drop()` check.
         let pack = create_pack();
         let m = pack
             .check("db.users.drop(); db.posts.find({})")
             .expect("drop() with find() must still block");
-        // `drop-collection` wins over `collection-drop` because it appears
-        // first in the destructive_patterns list; both are equally correct
-        // for this input.
         assert_eq!(m.name, Some("drop-collection"));
 
         let m = pack
@@ -209,5 +205,33 @@ mod tests {
             .check("mongorestore --drop /backup; db.users.find({})")
             .expect("mongorestore --drop with find() must still block");
         assert_eq!(m.name, Some("mongorestore-drop"));
+    }
+
+    #[test]
+    fn mongodb_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "db.dropDatabase()", "dropDatabase");
+        assert_blocks(&pack, "db.users.drop()", "drop");
+        assert_blocks(&pack, "db.users.dropCollection()", "dropCollection");
+        assert_blocks(&pack, "db.users.deleteMany({})", "deleteMany");
+        assert_blocks(&pack, "db.users.remove({})", "remove");
+        assert_blocks(&pack, "mongorestore --drop /backup", "mongorestore --drop");
+    }
+
+    #[test]
+    fn mongodb_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "db.dropDatabase()", Severity::Critical);
+        assert_blocks_with_severity(&pack, "db.users.drop()", Severity::High);
+        assert_blocks_with_severity(&pack, "db.users.deleteMany({})", Severity::High);
+        assert_blocks_with_severity(&pack, "mongorestore --drop /backup", Severity::High);
+    }
+
+    #[test]
+    fn mongodb_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo mongo");
     }
 }

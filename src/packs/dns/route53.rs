@@ -136,6 +136,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -219,5 +220,108 @@ mod tests {
                 .is_none(),
             "safe read with global flag should remain safe"
         );
+    }
+
+    #[test]
+    fn route53_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "aws route53 delete-hosted-zone --id Z123",
+            "aws route53 delete-hosted-zone permanently deletes a Route53 hosted zone",
+        );
+        assert_blocks(
+            &pack,
+            "aws route53 change-resource-record-sets --hosted-zone-id Z123 --change-batch '{\"Changes\":[{\"Action\":\"DELETE\"}]}'",
+            "aws route53 change-resource-record-sets with DELETE removes DNS records",
+        );
+        assert_blocks(
+            &pack,
+            "aws route53 delete-health-check --health-check-id abc",
+            "aws route53 delete-health-check permanently deletes a Route53 health check",
+        );
+        assert_blocks(
+            &pack,
+            "aws route53 delete-query-logging-config --id abc",
+            "aws route53 delete-query-logging-config removes a Route53 query logging configuration",
+        );
+        assert_blocks(
+            &pack,
+            "aws route53 delete-traffic-policy --id abc --version 1",
+            "aws route53 delete-traffic-policy permanently deletes a Route53 traffic policy",
+        );
+        assert_blocks(
+            &pack,
+            "aws route53 delete-reusable-delegation-set --id N123",
+            "aws route53 delete-reusable-delegation-set permanently deletes a reusable delegation set",
+        );
+    }
+
+    #[test]
+    fn route53_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 delete-hosted-zone --id Z123",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 change-resource-record-sets --hosted-zone-id Z123 --change-batch '{\"Changes\":[{\"Action\":\"DELETE\"}]}'",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 delete-health-check --health-check-id abc",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 delete-query-logging-config --id abc",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 delete-traffic-policy --id abc --version 1",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws route53 delete-reusable-delegation-set --id N123",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn route53_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "aws route53 list-hosted-zones");
+        assert_safe_pattern_matches(&pack, "aws route53 list-hosted-zones --max-items 10");
+        assert_safe_pattern_matches(
+            &pack,
+            "aws route53 list-resource-record-sets --hosted-zone-id Z123",
+        );
+        assert_safe_pattern_matches(&pack, "aws route53 get-hosted-zone --id Z123");
+        assert_safe_pattern_matches(
+            &pack,
+            "aws route53 test-dns-answer --hosted-zone-id Z123 --record-name example.com",
+        );
+        assert_safe_pattern_matches(
+            &pack,
+            "aws --profile prod route53 list-hosted-zones",
+        );
+        assert_safe_pattern_matches(
+            &pack,
+            "aws --region us-east-1 route53 get-hosted-zone --id Z123",
+        );
+    }
+
+    #[test]
+    fn route53_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

@@ -104,6 +104,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -116,10 +117,43 @@ mod tests {
             "clean eventdata",
         );
         assert_blocks(&pack, "splunk delete user alice", "delete user");
+        assert_blocks(&pack, "splunk delete role analyst", "delete user");
+    }
+
+    #[test]
+    fn splunk_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "splunk remove index main", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "splunk clean eventdata -index main",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(&pack, "splunk delete user alice", Severity::High);
+    }
+
+    #[test]
+    fn splunk_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "splunk list index");
+        assert_safe_pattern_matches(&pack, "splunk show config");
+        assert_safe_pattern_matches(&pack, "splunk search 'index=main error'");
+    }
+
+    #[test]
+    fn splunk_with_global_flags() {
+        let pack = create_pack();
         assert_blocks(
             &pack,
-            "curl -X DELETE https://splunk.example.com:8089/services/data/indexes/main",
-            "REST DELETE",
+            "splunk --accept-license remove index main",
+            "remove index",
         );
+    }
+
+    #[test]
+    fn splunk_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

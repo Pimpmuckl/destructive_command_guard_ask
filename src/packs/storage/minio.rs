@@ -163,6 +163,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -271,5 +272,120 @@ mod tests {
         let pack = create_pack();
         assert_blocks_with_pattern(&pack, "mc -q rb myminio/bucket", "mc-rb");
         assert_blocks_with_pattern(&pack, "mc -j rm myminio/bucket/file", "mc-rm");
+    }
+
+    #[test]
+    fn minio_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "mc rb myminio/bucket", "mc rb removes a MinIO bucket");
+        assert_blocks(
+            &pack,
+            "mc rb --force myminio/bucket",
+            "mc rb removes a MinIO bucket",
+        );
+        assert_blocks(
+            &pack,
+            "mc rm myminio/bucket/file.txt",
+            "mc rm deletes objects from MinIO",
+        );
+        assert_blocks(
+            &pack,
+            "mc rm --recursive myminio/bucket/",
+            "mc rm deletes objects from MinIO",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin bucket delete myminio bucket",
+            "mc admin bucket delete removes a bucket via admin API",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin bucket remove myminio bucket",
+            "mc admin bucket delete removes a bucket via admin API",
+        );
+        assert_blocks(
+            &pack,
+            "mc mirror --remove myminio/src myminio/dst",
+            "mc mirror --remove deletes destination objects not in source",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin user remove myminio username",
+            "mc admin user remove/disable affects user access",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin user disable myminio username",
+            "mc admin user remove/disable affects user access",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin policy remove myminio policyname",
+            "mc admin policy remove/unset modifies access policies",
+        );
+        assert_blocks(
+            &pack,
+            "mc admin policy unset myminio policyname",
+            "mc admin policy remove/unset modifies access policies",
+        );
+    }
+
+    #[test]
+    fn minio_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "mc rb myminio/bucket", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "mc rm myminio/bucket/file.txt",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "mc admin bucket delete myminio bucket",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "mc mirror --remove myminio/src myminio/dst",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "mc admin user remove myminio username",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "mc admin policy remove myminio policyname",
+            Severity::Medium,
+        );
+    }
+
+    #[test]
+    fn minio_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "mc ls myminio/bucket");
+        assert_safe_pattern_matches(&pack, "mc cat myminio/bucket/file.txt");
+        assert_safe_pattern_matches(&pack, "mc head myminio/bucket/file.txt");
+        assert_safe_pattern_matches(&pack, "mc stat myminio/bucket/file.txt");
+        assert_safe_pattern_matches(&pack, "mc cp localfile myminio/bucket/");
+        assert_safe_pattern_matches(&pack, "mc diff myminio/bucket1 myminio/bucket2");
+        assert_safe_pattern_matches(&pack, "mc find myminio/bucket --name '*.txt'");
+        assert_safe_pattern_matches(&pack, "mc du myminio/bucket");
+        assert_safe_pattern_matches(&pack, "mc version");
+        assert_safe_pattern_matches(&pack, "mc --help");
+        assert_safe_pattern_matches(&pack, "mc admin info myminio");
+        assert_safe_pattern_matches(&pack, "mc admin user list myminio");
+        assert_safe_pattern_matches(&pack, "mc admin policy list myminio");
+        assert_safe_pattern_matches(&pack, "mc alias list");
+    }
+
+    #[test]
+    fn minio_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

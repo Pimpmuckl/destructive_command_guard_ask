@@ -149,6 +149,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -191,5 +192,85 @@ mod tests {
         assert_blocks_with_pattern(&pack, "rclone cleanup remote:", "rclone-cleanup");
         assert_blocks_with_pattern(&pack, "rclone dedupe remote:", "rclone-dedupe");
         assert_blocks_with_pattern(&pack, "rclone move src: dest:", "rclone-move");
+    }
+
+    #[test]
+    fn rclone_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "rclone sync src: dest:",
+            "rclone sync deletes destination files",
+        );
+        assert_blocks(
+            &pack,
+            "rclone delete remote:bucket",
+            "rclone delete removes files",
+        );
+        assert_blocks(
+            &pack,
+            "rclone deletefile remote:bucket/file.txt",
+            "rclone deletefile removes a single file",
+        );
+        assert_blocks(
+            &pack,
+            "rclone purge remote:bucket",
+            "rclone purge deletes a path",
+        );
+        assert_blocks(
+            &pack,
+            "rclone cleanup remote:",
+            "rclone cleanup removes old",
+        );
+        assert_blocks(
+            &pack,
+            "rclone dedupe remote:",
+            "rclone dedupe can delete or rename",
+        );
+        assert_blocks(
+            &pack,
+            "rclone move src: dest:",
+            "rclone move deletes source files",
+        );
+    }
+
+    #[test]
+    fn rclone_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "rclone sync src: dest:", Severity::Critical);
+        assert_blocks_with_severity(&pack, "rclone delete remote:bucket", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "rclone deletefile remote:bucket/file.txt",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "rclone purge remote:bucket", Severity::Critical);
+        assert_blocks_with_severity(&pack, "rclone cleanup remote:", Severity::Medium);
+        assert_blocks_with_severity(&pack, "rclone dedupe remote:", Severity::High);
+        assert_blocks_with_severity(&pack, "rclone move src: dest:", Severity::High);
+    }
+
+    #[test]
+    fn rclone_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "rclone copy src: dest:");
+        assert_safe_pattern_matches(&pack, "rclone ls remote:");
+        assert_safe_pattern_matches(&pack, "rclone lsd remote:");
+        assert_safe_pattern_matches(&pack, "rclone lsl remote:");
+        assert_safe_pattern_matches(&pack, "rclone size remote:");
+        assert_safe_pattern_matches(&pack, "rclone check src: dest:");
+        assert_safe_pattern_matches(&pack, "rclone config");
+        assert_safe_pattern_matches(&pack, "rclone sync src: dest: --dry-run");
+        // With flags before subcommand
+        assert_safe_pattern_matches(&pack, "rclone --verbose copy src: dest:");
+        assert_safe_pattern_matches(&pack, "rclone -v ls remote:");
+    }
+
+    #[test]
+    fn rclone_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

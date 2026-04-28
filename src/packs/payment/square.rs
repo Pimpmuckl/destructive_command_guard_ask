@@ -114,6 +114,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -165,5 +166,28 @@ mod tests {
             "curl -X DELETE https://api.squareup.com/v2/webhooks/subscriptions/sub_123",
             "square-api-delete-webhook-subscription",
         );
+    }
+
+    #[test]
+    fn square_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "square catalog delete obj_123", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.squareup.com/v2/customers/c",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.squareup.com/v2/webhooks/subscriptions/s",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn square_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

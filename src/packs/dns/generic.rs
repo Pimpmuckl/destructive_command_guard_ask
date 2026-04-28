@@ -82,6 +82,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -118,5 +119,82 @@ mod tests {
         );
         assert_blocks_with_pattern(&pack, "nsupdate -l", "dns-nsupdate-local");
         assert_blocks_with_pattern(&pack, "dig axfr example.com", "dns-dig-zone-transfer");
+    }
+
+    #[test]
+    fn generic_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "echo 'delete example.com' | nsupdate",
+            "nsupdate delete commands remove DNS records",
+        );
+        assert_blocks(
+            &pack,
+            "nsupdate delete example.com A",
+            "nsupdate delete commands remove DNS records",
+        );
+        assert_blocks(
+            &pack,
+            "nsupdate -l",
+            "nsupdate -l applies local updates which can modify DNS records",
+        );
+        assert_blocks(
+            &pack,
+            "nsupdate -l /tmp/update.txt",
+            "nsupdate -l applies local updates which can modify DNS records",
+        );
+        assert_blocks(
+            &pack,
+            "dig axfr example.com",
+            "dig AXFR/IXFR zone transfers can exfiltrate full zone data",
+        );
+        assert_blocks(
+            &pack,
+            "dig ixfr=12345 example.com",
+            "dig AXFR/IXFR zone transfers can exfiltrate full zone data",
+        );
+    }
+
+    #[test]
+    fn generic_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "nsupdate delete example.com A",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "nsupdate -l",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "dig axfr example.com",
+            Severity::Medium,
+        );
+    }
+
+    #[test]
+    fn generic_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "dig example.com");
+        assert_safe_pattern_matches(&pack, "dig +short example.com");
+        assert_safe_pattern_matches(&pack, "dig +trace example.com");
+        assert_safe_pattern_matches(&pack, "dig example.com MX");
+        assert_safe_pattern_matches(&pack, "host example.com");
+        assert_safe_pattern_matches(&pack, "host -t MX example.com");
+        assert_safe_pattern_matches(&pack, "nslookup example.com");
+        assert_safe_pattern_matches(&pack, "nslookup -type=A example.com");
+    }
+
+    #[test]
+    fn generic_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

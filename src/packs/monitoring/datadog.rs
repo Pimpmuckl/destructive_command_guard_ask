@@ -104,6 +104,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -155,5 +156,24 @@ mod tests {
             "terraform destroy -target=datadog_monitor.alerts",
             "terraform-datadog-destroy",
         );
+    }
+
+    #[test]
+    fn datadog_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "datadog-ci monitors delete 123", Severity::High);
+        assert_blocks_with_severity(&pack, "datadog-ci dashboards delete abc", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.datadoghq.com/api/v1/dashboard/abc",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn datadog_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

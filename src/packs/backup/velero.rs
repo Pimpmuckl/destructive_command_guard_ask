@@ -144,6 +144,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -200,5 +201,94 @@ mod tests {
             "velero-snapshot-location-delete",
         );
         assert_blocks_with_pattern(&pack, "velero uninstall", "velero-uninstall");
+    }
+
+    #[test]
+    fn velero_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "velero backup delete nightly",
+            "velero backup delete removes a backup",
+        );
+        assert_blocks(
+            &pack,
+            "velero schedule delete nightly",
+            "velero schedule delete removes scheduled backups",
+        );
+        assert_blocks(
+            &pack,
+            "velero restore delete restore-1",
+            "velero restore delete removes restore records",
+        );
+        assert_blocks(
+            &pack,
+            "velero backup-location delete default",
+            "velero backup-location delete removes a backup storage location",
+        );
+        assert_blocks(
+            &pack,
+            "velero snapshot-location delete default",
+            "velero snapshot-location delete removes a snapshot location",
+        );
+        assert_blocks(
+            &pack,
+            "velero uninstall",
+            "velero uninstall removes the Velero deployment",
+        );
+    }
+
+    #[test]
+    fn velero_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "velero backup delete nightly",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "velero schedule delete nightly",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "velero restore delete restore-1",
+            Severity::Low,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "velero backup-location delete default",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "velero snapshot-location delete default",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "velero uninstall", Severity::Critical);
+    }
+
+    #[test]
+    fn velero_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "velero backup get");
+        assert_safe_pattern_matches(&pack, "velero backup describe nightly");
+        assert_safe_pattern_matches(&pack, "velero backup logs nightly");
+        assert_safe_pattern_matches(&pack, "velero backup create nightly");
+        assert_safe_pattern_matches(&pack, "velero schedule get");
+        assert_safe_pattern_matches(&pack, "velero restore create restore-1");
+        assert_safe_pattern_matches(&pack, "velero version");
+        // With flags before subcommand
+        assert_safe_pattern_matches(&pack, "velero --kubeconfig /path backup get");
+        assert_safe_pattern_matches(&pack, "velero -n velero backup create nightly");
+    }
+
+    #[test]
+    fn velero_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

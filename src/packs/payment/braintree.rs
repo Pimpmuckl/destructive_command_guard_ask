@@ -135,6 +135,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -194,5 +195,37 @@ mod tests {
             "gateway.subscription.cancel('sub_123')",
             "braintree-subscription-cancel",
         );
+    }
+
+    #[test]
+    fn braintree_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.braintreegateway.com/merchants/abc/customers/c",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "braintree.Customer.delete('c')",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "gateway.payment_method.delete('pm')",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "gateway.subscription.cancel('s')",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn braintree_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

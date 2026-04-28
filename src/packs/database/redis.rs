@@ -249,6 +249,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -263,9 +264,6 @@ mod tests {
     #[test]
     fn safe_get_with_no_destructive_keyword_is_allowed() {
         let pack = create_pack();
-        // Bare `redis-cli GET foo` has no destructive keyword, so the pack
-        // doesn't even run — but the safe pattern itself must still match
-        // under the lookahead constraint.
         assert!(pack.matches_safe("redis-cli GET foo"));
         assert!(pack.matches_safe("redis-cli -n 2 SCAN 0"));
         assert!(pack.matches_safe("redis-cli INFO"));
@@ -276,9 +274,6 @@ mod tests {
 
     #[test]
     fn compound_command_safe_word_does_not_bypass_destructive() {
-        // These were the bypass cases: each compound command contains both a
-        // destructive redis keyword and a safe one. Previously the safe keyword
-        // would short-circuit the pack. Now the destructive pattern wins.
         let pack = create_pack();
         let m = pack
             .check("redis-cli FLUSHALL && redis-cli GET foo")
@@ -299,5 +294,51 @@ mod tests {
             .check("redis-cli DEBUG SEGFAULT; redis-cli INFO")
             .expect("DEBUG SEGFAULT compound with INFO must still block");
         assert_eq!(m.name, Some("debug-crash"));
+    }
+
+    #[test]
+    fn redis_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "redis-cli FLUSHALL", "FLUSHALL");
+        assert_blocks(&pack, "redis-cli FLUSHDB", "FLUSHDB");
+        assert_blocks(&pack, "redis-cli DEBUG SEGFAULT", "DEBUG");
+        assert_blocks(&pack, "redis-cli DEBUG SLEEP 30", "DEBUG SLEEP");
+        assert_blocks(&pack, "redis-cli SHUTDOWN", "SHUTDOWN");
+        assert_blocks(&pack, "redis-cli CONFIG SET dir /tmp", "CONFIG SET");
+        assert_blocks(&pack, "redis-cli CONFIG SET dbfilename x", "CONFIG SET");
+        assert_blocks(&pack, "redis-cli CONFIG SET slaveof x", "CONFIG SET");
+        assert_blocks(&pack, "redis-cli CONFIG SET maxmemory 100mb", "maxmemory");
+        assert_blocks(
+            &pack,
+            "redis-cli CONFIG SET maxmemory-policy allkeys-lru",
+            "maxmemory-policy",
+        );
+        assert_blocks(&pack, "redis-cli CONFIG SET save ''", "CONFIG SET save");
+        assert_blocks(
+            &pack,
+            "redis-cli CONFIG SET appendonly no",
+            "CONFIG SET appendonly",
+        );
+        assert_blocks(&pack, "redis-cli CONFIG REWRITE", "CONFIG REWRITE");
+    }
+
+    #[test]
+    fn redis_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "redis-cli FLUSHALL", Severity::Critical);
+        assert_blocks_with_severity(&pack, "redis-cli FLUSHDB", Severity::High);
+        assert_blocks_with_severity(&pack, "redis-cli DEBUG SEGFAULT", Severity::Critical);
+        assert_blocks_with_severity(&pack, "redis-cli DEBUG SLEEP 10", Severity::High);
+        assert_blocks_with_severity(&pack, "redis-cli SHUTDOWN", Severity::High);
+        assert_blocks_with_severity(&pack, "redis-cli CONFIG SET dir /tmp", Severity::Critical);
+        assert_blocks_with_severity(&pack, "redis-cli CONFIG REWRITE", Severity::High);
+    }
+
+    #[test]
+    fn redis_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo redis");
     }
 }

@@ -166,6 +166,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -244,5 +245,42 @@ mod tests {
             "aws sns delete-platform-application --platform-application-arn arn:aws:sns:us-east-1:123:app",
             "aws-sns-delete-platform-application",
         );
+    }
+
+    #[test]
+    fn sqs_sns_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "aws sqs delete-queue --queue-url https://sqs.us-east-1.amazonaws.com/123/q",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws sqs purge-queue --queue-url https://sqs.us-east-1.amazonaws.com/123/q",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws sqs delete-message-batch --queue-url https://sqs.us-east-1.amazonaws.com/123/q",
+            Severity::Medium,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws sns delete-topic --topic-arn arn:aws:sns:us-east-1:123:t",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws sns unsubscribe --subscription-arn arn:aws:sns:us-east-1:123:s",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn sqs_sns_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

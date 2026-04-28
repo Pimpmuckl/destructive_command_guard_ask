@@ -150,6 +150,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -204,5 +205,23 @@ mod tests {
             "nats-object-delete",
         );
         assert_blocks_with_pattern(&pack, "nats account delete acct", "nats-account-delete");
+    }
+
+    #[test]
+    fn nats_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "nats stream delete ORDERS", Severity::Critical);
+        assert_blocks_with_severity(&pack, "nats stream purge ORDERS", Severity::High);
+        assert_blocks_with_severity(&pack, "nats consumer delete ORDERS d", Severity::High);
+        assert_blocks_with_severity(&pack, "nats kv del KV key", Severity::High);
+        assert_blocks_with_severity(&pack, "nats object delete bucket obj", Severity::High);
+        assert_blocks_with_severity(&pack, "nats account delete acct", Severity::Critical);
+    }
+
+    #[test]
+    fn nats_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
     }
 }

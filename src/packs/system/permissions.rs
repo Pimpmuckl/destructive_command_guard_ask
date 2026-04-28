@@ -172,6 +172,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -185,10 +186,6 @@ mod tests {
 
     #[test]
     fn quote_bypass_does_not_evade_system_dir_block() {
-        // Shell unquotes "/etc" to /etc before the command sees it, so the
-        // destructive form must match the quoted spelling too. Use mode 0755
-        // so `chmod-777` (which would match first for 0777) doesn't shadow
-        // the `chmod-recursive-root` attribution we want to verify.
         let pack = create_pack();
         assert_blocks_with_pattern(&pack, "chmod -R 0755 \"/etc\"", "chmod-recursive-root");
         assert_blocks_with_pattern(&pack, "chmod -R 0755 '/usr/local'", "chmod-recursive-root");
@@ -199,7 +196,45 @@ mod tests {
             "chown-recursive-root",
         );
         assert_blocks_with_pattern(&pack, "setfacl -R -m u:app:rwx \"/etc\"", "setfacl-all");
-        // Unquoted still works.
         assert_blocks_with_pattern(&pack, "chmod -R 0755 /etc", "chmod-recursive-root");
+    }
+
+    #[test]
+    fn permissions_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "chmod 777 /tmp/myfile", "777");
+        assert_blocks(&pack, "chmod -R 755 /etc", "system directories");
+        assert_blocks(&pack, "chown -R user:group /var", "system ownership");
+        assert_blocks(&pack, "chmod u+s /usr/bin/myapp", "setuid");
+        assert_blocks(&pack, "chmod g+s /shared", "setgid");
+        assert_blocks(&pack, "chown root: /tmp/myfile", "root");
+        assert_blocks(&pack, "setfacl -R -m u:app:rwx /etc", "setfacl");
+    }
+
+    #[test]
+    fn permissions_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "chmod 777 /tmp/myfile", Severity::High);
+        assert_blocks_with_severity(&pack, "chmod -R 755 /etc", Severity::Critical);
+        assert_blocks_with_severity(&pack, "chown -R user:group /var", Severity::High);
+        assert_blocks_with_severity(&pack, "chmod u+s /usr/bin/myapp", Severity::High);
+        assert_blocks_with_severity(&pack, "setfacl -R -m u:app:rwx /etc", Severity::Critical);
+    }
+
+    #[test]
+    fn permissions_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "chmod 755 myfile");
+        assert_safe_pattern_matches(&pack, "stat /tmp/myfile");
+        assert_safe_pattern_matches(&pack, "ls -la /tmp");
+        assert_safe_pattern_matches(&pack, "getfacl /tmp/myfile");
+        assert_safe_pattern_matches(&pack, "namei -l /tmp/myfile");
+    }
+
+    #[test]
+    fn permissions_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

@@ -152,6 +152,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -250,5 +251,80 @@ mod tests {
             "curl -X DELETE https://api.sendgrid.com/v3/subusers/username",
             "sendgrid-delete-subuser",
         );
+    }
+
+    #[test]
+    fn sendgrid_blocks_with_correct_severity() {
+        let pack = create_pack();
+        // Template deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/templates/d-abc123",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl --request DELETE https://api.sendgrid.com/v3/templates/d-abc123",
+            Severity::High,
+        );
+        // API key deletion - Critical
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/api_keys/abc123",
+            Severity::Critical,
+        );
+        // Domain authentication deletion - Critical
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/whitelabel/domains/12345",
+            Severity::Critical,
+        );
+        // Sender identity deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/senders/12345",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/verified_senders/12345",
+            Severity::High,
+        );
+        // Teammate deletion - Medium
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/teammates/username",
+            Severity::Medium,
+        );
+        // Suppression deletion - High
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/suppression/bounces/email@test.com",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/asm/groups/123",
+            Severity::High,
+        );
+        // Webhook deletion - Medium
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/user/webhooks/event/settings",
+            Severity::Medium,
+        );
+        // Subuser deletion - Critical
+        assert_blocks_with_severity(
+            &pack,
+            "curl -X DELETE https://api.sendgrid.com/v3/subusers/username",
+            Severity::Critical,
+        );
+    }
+
+    #[test]
+    fn sendgrid_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

@@ -127,6 +127,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packs::Severity;
     use crate::packs::test_helpers::*;
 
     #[test]
@@ -172,5 +173,73 @@ mod tests {
             "restic-unlock-remove-all",
         );
         assert_blocks_with_pattern(&pack, "restic cache --cleanup", "restic-cache-cleanup");
+    }
+
+    #[test]
+    fn restic_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(
+            &pack,
+            "restic forget latest",
+            "restic forget removes snapshots",
+        );
+        assert_blocks(
+            &pack,
+            "restic prune",
+            "restic prune removes unreferenced data",
+        );
+        assert_blocks(
+            &pack,
+            "restic key remove 1",
+            "restic key remove deletes encryption keys",
+        );
+        assert_blocks(
+            &pack,
+            "restic unlock --remove-all",
+            "restic unlock --remove-all force-removes",
+        );
+        assert_blocks(
+            &pack,
+            "restic cache --cleanup",
+            "restic cache --cleanup removes cached data",
+        );
+    }
+
+    #[test]
+    fn restic_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "restic forget latest", Severity::Critical);
+        assert_blocks_with_severity(&pack, "restic prune", Severity::Critical);
+        assert_blocks_with_severity(&pack, "restic key remove 1", Severity::Critical);
+        assert_blocks_with_severity(
+            &pack,
+            "restic unlock --remove-all",
+            Severity::High,
+        );
+        assert_blocks_with_severity(&pack, "restic cache --cleanup", Severity::Low);
+    }
+
+    #[test]
+    fn restic_all_safe_patterns_match() {
+        let pack = create_pack();
+        assert_safe_pattern_matches(&pack, "restic snapshots");
+        assert_safe_pattern_matches(&pack, "restic ls latest");
+        assert_safe_pattern_matches(&pack, "restic stats");
+        assert_safe_pattern_matches(&pack, "restic check");
+        assert_safe_pattern_matches(&pack, "restic diff snap1 snap2");
+        assert_safe_pattern_matches(&pack, "restic find myfile");
+        assert_safe_pattern_matches(&pack, "restic backup /data");
+        assert_safe_pattern_matches(&pack, "restic restore latest --target /tmp");
+        // With flags before subcommand
+        assert_safe_pattern_matches(&pack, "restic --verbose snapshots");
+        assert_safe_pattern_matches(&pack, "restic -r /repo backup /data");
+    }
+
+    #[test]
+    fn restic_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }

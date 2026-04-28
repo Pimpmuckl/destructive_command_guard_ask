@@ -171,6 +171,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -248,5 +249,104 @@ mod tests {
             "gcloud storage rm gs://bucket/file",
             "gcloud-storage-rm",
         );
+    }
+
+    #[test]
+    fn gcs_blocks_each_destructive_pattern() {
+        let pack = create_pack();
+        assert_blocks(&pack, "gsutil rb gs://bucket", "gsutil rb removes a GCS bucket");
+        assert_blocks(
+            &pack,
+            "gsutil -f rb gs://bucket",
+            "gsutil rb removes a GCS bucket",
+        );
+        assert_blocks(
+            &pack,
+            "gsutil rm gs://bucket/file",
+            "gsutil rm deletes objects from GCS",
+        );
+        assert_blocks(
+            &pack,
+            "gsutil -m rm -r gs://bucket",
+            "gsutil rm deletes objects from GCS",
+        );
+        assert_blocks(
+            &pack,
+            "gsutil rsync -d gs://src gs://dst",
+            "gsutil rsync -d deletes destination objects not in source",
+        );
+        assert_blocks(
+            &pack,
+            "gcloud storage buckets delete gs://bucket",
+            "gcloud storage buckets delete removes a GCS bucket",
+        );
+        assert_blocks(
+            &pack,
+            "gcloud storage objects delete gs://bucket/file",
+            "gcloud storage objects delete removes objects from GCS",
+        );
+        assert_blocks(
+            &pack,
+            "gcloud storage rm gs://bucket/file",
+            "gcloud storage rm removes objects from GCS",
+        );
+    }
+
+    #[test]
+    fn gcs_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(&pack, "gsutil rb gs://bucket", Severity::Critical);
+        assert_blocks_with_severity(&pack, "gsutil rm gs://bucket/file", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "gsutil rsync -d gs://src gs://dst",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "gcloud storage buckets delete gs://bucket",
+            Severity::Critical,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "gcloud storage objects delete gs://bucket/file",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "gcloud storage rm gs://bucket/file",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn gcs_all_safe_patterns_match() {
+        let pack = create_pack();
+        // gsutil safe patterns
+        assert_safe_pattern_matches(&pack, "gsutil ls gs://bucket");
+        assert_safe_pattern_matches(&pack, "gsutil cat gs://bucket/file");
+        assert_safe_pattern_matches(&pack, "gsutil stat gs://bucket/file");
+        assert_safe_pattern_matches(&pack, "gsutil du gs://bucket");
+        assert_safe_pattern_matches(&pack, "gsutil hash gs://bucket/file");
+        assert_safe_pattern_matches(&pack, "gsutil version");
+        assert_safe_pattern_matches(&pack, "gsutil help");
+        assert_safe_pattern_matches(&pack, "gsutil cp gs://bucket/file ./local");
+        // gcloud storage safe patterns
+        assert_safe_pattern_matches(&pack, "gcloud storage buckets list");
+        assert_safe_pattern_matches(&pack, "gcloud storage buckets describe gs://bucket");
+        assert_safe_pattern_matches(&pack, "gcloud storage objects list gs://bucket");
+        assert_safe_pattern_matches(&pack, "gcloud storage objects describe gs://bucket/file");
+        assert_safe_pattern_matches(&pack, "gcloud storage ls gs://bucket");
+        assert_safe_pattern_matches(&pack, "gcloud storage cat gs://bucket/file");
+        assert_safe_pattern_matches(&pack, "gcloud storage cp gs://bucket/file ./local");
+    }
+
+    #[test]
+    fn gcs_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
+        assert_no_match(&pack, "ls -la");
+        assert_no_match(&pack, "docker ps");
     }
 }

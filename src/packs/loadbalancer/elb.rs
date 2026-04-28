@@ -104,6 +104,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 mod tests {
     use super::*;
     use crate::packs::test_helpers::*;
+    use crate::packs::Severity;
 
     #[test]
     fn test_pack_creation() {
@@ -171,5 +172,52 @@ mod tests {
             "aws elb deregister-instances-from-load-balancer --load-balancer-name my-classic-elb --instances i-0123456789abcdef0",
             "elb-deregister-instances",
         );
+    }
+
+    #[test]
+    fn elb_blocks_with_correct_severity() {
+        let pack = create_pack();
+        assert_blocks_with_severity(
+            &pack,
+            "aws elbv2 delete-load-balancer --load-balancer-arn arn:aws:elasticloadbalancing:us-west-2:123:loadbalancer/app/lb/abc",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws --profile prod elbv2 delete-target-group --target-group-arn arn:aws:elasticloadbalancing:us-west-2:123:targetgroup/tg/abc",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws elbv2 deregister-targets --target-group-arn arn:aws:elasticloadbalancing:us-west-2:123:targetgroup/tg/abc --targets Id=i-0123456789abcdef0",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws elbv2 delete-listener --listener-arn arn:aws:elasticloadbalancing:us-west-2:123:listener/app/lb/abc/def",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws elbv2 delete-rule --rule-arn arn:aws:elasticloadbalancing:us-west-2:123:listener-rule/app/lb/abc/def/ghi",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws elb delete-load-balancer --load-balancer-name my-classic-elb",
+            Severity::High,
+        );
+        assert_blocks_with_severity(
+            &pack,
+            "aws elb deregister-instances-from-load-balancer --load-balancer-name my-classic-elb --instances i-0123456789abcdef0",
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn elb_unrelated_commands_no_match() {
+        let pack = create_pack();
+        assert_no_match(&pack, "git status");
+        assert_no_match(&pack, "echo hello");
     }
 }
