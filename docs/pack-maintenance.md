@@ -50,8 +50,10 @@ Handle reports as follows:
 ### CLI Version Checker
 
 `scripts/check_cli_versions.sh` scans changelogs and flags new releases.
-It is intended for scheduled CI usage and should open an issue when a new
-version is detected (implementation TODO).
+It is intended for scheduled CI usage and exits non-zero when a tracked CLI has
+a newer release family that is not covered by `tested_versions`. The failure
+output includes the changelog URL and the exact `docs/cli-versions.yaml` update
+needed after maintainers review the release notes and update pack coverage.
 
 The weekly CI runner is defined in `.github/workflows/cli-version-audit.yml`.
 
