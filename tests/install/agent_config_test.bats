@@ -13,6 +13,7 @@ setup() {
     setup_isolated_home
     setup_test_log "$BATS_TEST_NAME"
     extract_install_functions
+    extract_uninstall_functions
 
     # Set default DEST for configuration
     DEST="$TEST_TMPDIR/bin"
@@ -635,6 +636,10 @@ create_no_python_path() {
     echo "$no_python_path"
 }
 
+log_codex_hooks_transition() {
+    log_test "Codex hooks after: $(cat "$CODEX_SETTINGS" 2>/dev/null || echo 'missing')"
+}
+
 @test "configure_codex: skips when not installed" {
     log_test "Testing Codex detection when not installed..."
 
@@ -842,4 +847,325 @@ EOF
     if grep -q "$DEST/dcg" "$CODEX_SETTINGS"; then
         return 1
     fi
+}
+
+@test "unconfigure_codex: deletes hooks.json when only dcg is present" {
+    log_test "Testing Codex uninstall deletes dcg-only hooks.json..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"removed"* ]]
+    assert_codex_hooks_deleted
+}
+
+@test "unconfigure_codex: preserves coexisting atuin hook in same Bash matcher" {
+    log_test "Testing Codex uninstall preserves same-matcher non-dcg hook..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"},
+          {"type": "command", "command": "atuin history start"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    assert_codex_hooks_contains "atuin history start"
+    assert_codex_hooks_not_contains "/usr/local/bin/dcg"
+}
+
+@test "unconfigure_codex: preserves separate matcher block for atuin" {
+    log_test "Testing Codex uninstall preserves separate matcher block..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"}
+        ]
+      },
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    assert_codex_hooks_contains '"matcher": "^Bash$"'
+    assert_codex_hooks_contains "atuin history start"
+    assert_codex_hooks_not_contains "/usr/local/bin/dcg"
+}
+
+@test "unconfigure_codex: preserves PostToolUse when only PreToolUse had dcg" {
+    log_test "Testing Codex uninstall preserves PostToolUse hooks..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history end"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    assert_codex_hooks_contains "PostToolUse"
+    assert_codex_hooks_contains "atuin history end"
+    assert_codex_hooks_not_contains "/usr/local/bin/dcg"
+}
+
+@test "unconfigure_codex: no-op when file has no dcg entries" {
+    log_test "Testing Codex uninstall no-op without dcg entries..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: no-op when file does not exist" {
+    log_test "Testing Codex uninstall no-op without hooks.json..."
+
+    mkdir -p "$HOME/.codex"
+    [ ! -e "$CODEX_SETTINGS" ]
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: malformed JSON leaves hooks.json unchanged" {
+    log_test "Testing Codex uninstall leaves malformed JSON unchanged..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    mkdir -p "$HOME/.codex"
+    printf '%s\n' '{"command": "dcg",' > "$CODEX_SETTINGS"
+    save_codex_hooks_snapshot
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: PreToolUse is not a list leaves hooks.json unchanged" {
+    log_test "Testing Codex uninstall leaves non-list PreToolUse unchanged..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": {
+      "matcher": "Bash",
+      "hooks": [
+        {"type": "command", "command": "/usr/local/bin/dcg"}
+      ]
+    }
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: hooks key is not a dict leaves hooks.json unchanged" {
+    log_test "Testing Codex uninstall leaves non-dict hooks unchanged..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": [
+    {"type": "command", "command": "/usr/local/bin/dcg"}
+  ]
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: python3 unavailable returns 1 and preserves hooks.json" {
+    log_test "Testing Codex uninstall failure without python3..."
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"}
+        ]
+      }
+    ]
+  }
+}'
+
+    local saved_path="$PATH"
+    PATH="$(create_no_python_path)"
+
+    run unconfigure_codex
+
+    PATH="$saved_path"
+
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"python3 not available"* ]]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: read-only directory returns 1 and preserves hooks.json" {
+    log_test "Testing Codex uninstall failure with read-only hooks directory..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"}
+        ]
+      }
+    ]
+  }
+}'
+
+    chmod 500 "$HOME/.codex"
+    run unconfigure_codex
+    chmod 700 "$HOME/.codex"
+
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"failed to update"* ]]
+    assert_codex_hooks_unchanged
+}
+
+@test "unconfigure_codex: preserves dcg-helper while removing dcg" {
+    log_test "Testing Codex uninstall preserves commands whose basename is not dcg..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "/usr/local/bin/dcg"},
+          {"type": "command", "command": "/usr/local/bin/dcg-helper"}
+        ]
+      }
+    ]
+  }
+}'
+
+    run unconfigure_codex
+    log_test "unconfigure_codex status: $status"
+    log_test "unconfigure_codex output: $output"
+    log_codex_hooks_transition
+
+    [ "$status" -eq 0 ]
+    assert_codex_hooks_contains "dcg-helper"
+    assert_codex_hooks_not_contains "/usr/local/bin/dcg\""
 }

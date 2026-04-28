@@ -357,9 +357,21 @@ unconfigure_codex() {
         python3 - "$hooks_json" <<'PYEOF'
 import json
 import os
+import shlex
 import sys
 
 hooks_file = sys.argv[1]
+
+def is_dcg_command(command):
+    if not isinstance(command, str):
+        return False
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    if not parts:
+        return False
+    return os.path.basename(parts[0]) in {"dcg", "dcg.exe"}
 
 try:
     with open(hooks_file, 'r') as f:
@@ -379,6 +391,7 @@ if not isinstance(pre_tool_use, list):
     sys.exit(0)
 
 new_pre_tool_use = []
+removed = False
 for entry in pre_tool_use:
     if not isinstance(entry, dict):
         new_pre_tool_use.append(entry)
@@ -389,12 +402,17 @@ for entry in pre_tool_use:
         continue
     filtered = [
         h for h in inner
-        if not (isinstance(h, dict) and 'dcg' in str(h.get('command', '')))
+        if not (isinstance(h, dict) and is_dcg_command(h.get('command', '')))
     ]
+    if len(filtered) != len(inner):
+        removed = True
     if filtered:
         entry['hooks'] = filtered
         new_pre_tool_use.append(entry)
     # else: drop the matcher entry entirely (it had only dcg hooks)
+
+if not removed:
+    sys.exit(0)
 
 if new_pre_tool_use:
     hooks['PreToolUse'] = new_pre_tool_use
@@ -407,11 +425,15 @@ if not hooks:
 # If the file is now effectively empty, remove it so codex doesn't keep
 # parsing a stub. install.sh creates this file dedicated for dcg, so
 # leaving it as an empty {} is just litter.
-if not config:
-    os.remove(hooks_file)
-else:
-    with open(hooks_file, 'w') as f:
-        json.dump(config, f, indent=2)
+try:
+    if not config:
+        os.remove(hooks_file)
+    else:
+        with open(hooks_file, 'w') as f:
+            json.dump(config, f, indent=2)
+except OSError as exc:
+    print(f"warning: failed to update {hooks_file}: {exc}", file=sys.stderr)
+    sys.exit(1)
 
 print("removed", file=sys.stderr)
 PYEOF
@@ -588,7 +610,7 @@ main() {
         # from /dev/tty instead so the curl-pipe-bash one-liner works.
         # If /dev/tty isn't available (e.g. CI), refuse with a clear message
         # rather than silently cancelling.
-        printf "${YELLOW}Proceed with uninstall? [y/N]${NC} "
+        printf "%bProceed with uninstall? [y/N]%b " "$YELLOW" "$NC"
         response=""
         if [ -r /dev/tty ]; then
             # `|| true` so Ctrl-D/EOF doesn't kill the script under `set -e`;

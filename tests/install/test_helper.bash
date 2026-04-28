@@ -9,6 +9,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_SCRIPT="$PROJECT_ROOT/install.sh"
+UNINSTALL_SCRIPT="$PROJECT_ROOT/uninstall.sh"
 
 # Extract and source functions from install.sh
 # We create a temporary file with just the functions (no execution)
@@ -38,6 +39,26 @@ return 0 2>/dev/null || true
     # Suppress all output from sourcing
     # shellcheck disable=SC1090
     source "$tmp_functions" >/dev/null 2>&1 || true
+    rm -f "$tmp_functions"
+}
+
+# Extract and source functions from uninstall.sh without running main().
+extract_uninstall_functions() {
+    local tmp_functions
+    tmp_functions="$(mktemp)"
+
+    {
+        sed '
+            1d
+            s/^set -euo pipefail/set +e/
+            /^main "\$@"/i\
+return 0 2>/dev/null || true
+        ' "$UNINSTALL_SCRIPT"
+    } > "$tmp_functions"
+
+    # shellcheck disable=SC1090
+    source "$tmp_functions" >/dev/null 2>&1 || true
+    set +e
     rm -f "$tmp_functions"
 }
 
@@ -84,6 +105,57 @@ setup_mock_claude() {
 setup_mock_codex() {
     mkdir -p "$HOME/.codex"
     touch "$HOME/.codex/config.toml"
+}
+
+codex_hooks_file() {
+    echo "${CODEX_SETTINGS:-$HOME/.codex/hooks.json}"
+}
+
+seed_codex_hooks_json() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    mkdir -p "$(dirname "$hooks_json")"
+    printf '%s\n' "$1" > "$hooks_json"
+    cp "$hooks_json" "$TEST_TMPDIR/codex_hooks_snapshot.json"
+    log_test "Seeded Codex hooks: $(cat "$hooks_json")"
+}
+
+save_codex_hooks_snapshot() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    if [ -f "$hooks_json" ]; then
+        cp "$hooks_json" "$TEST_TMPDIR/codex_hooks_snapshot.json"
+    else
+        rm -f "$TEST_TMPDIR/codex_hooks_snapshot.json"
+    fi
+}
+
+assert_codex_hooks_deleted() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    [ ! -e "$hooks_json" ]
+}
+
+assert_codex_hooks_contains() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    grep -qF "$1" "$hooks_json"
+}
+
+assert_codex_hooks_not_contains() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    ! grep -qF "$1" "$hooks_json"
+}
+
+assert_codex_hooks_unchanged() {
+    local hooks_json
+    hooks_json="$(codex_hooks_file)"
+    if [ -f "$TEST_TMPDIR/codex_hooks_snapshot.json" ]; then
+        cmp -s "$TEST_TMPDIR/codex_hooks_snapshot.json" "$hooks_json"
+    else
+        [ ! -e "$hooks_json" ]
+    fi
 }
 
 # Create mock Gemini CLI installation
