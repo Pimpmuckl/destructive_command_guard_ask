@@ -558,7 +558,7 @@ mod tests {
         assert_blocks(
             &pack,
             "kubectl delete pods --all-namespaces",
-            "ALL namespaces",
+            "ALL resources",
         );
         assert_blocks(&pack, "kubectl delete pods -A", "ALL namespaces");
         assert_blocks(&pack, "kubectl drain node-1", "drain");
@@ -583,7 +583,11 @@ mod tests {
             "force",
         );
         assert_blocks(&pack, "kubectl apply -f deploy.yaml --force", "force");
-        assert_blocks(&pack, "kubectl delete -f ./manifests/", "directory");
+        assert_blocks(
+            &pack,
+            "kubectl delete -f ./manifests/",
+            "directories",
+        );
     }
 
     #[test]
