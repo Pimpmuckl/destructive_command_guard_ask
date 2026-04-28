@@ -2118,14 +2118,31 @@ impl AgentsConfig {
     pub fn profile_for(&self, agent_key: &str) -> &AgentProfile {
         self.profiles
             .get(agent_key)
+            .or_else(|| self.profile_for_agent_alias(agent_key))
             .or_else(|| {
                 if agent_key != "unknown" {
-                    self.profiles.get("unknown")
+                    self.profiles
+                        .get("unknown")
+                        .or_else(|| self.profile_for_agent_alias("unknown"))
                 } else {
                     None
                 }
             })
             .unwrap_or(&self.default)
+    }
+
+    fn profile_for_agent_alias(&self, agent_key: &str) -> Option<&AgentProfile> {
+        let requested_agent = crate::agent::Agent::from_name(agent_key);
+        let canonical_key = requested_agent.config_key();
+
+        if let Some(profile) = self.profiles.get(canonical_key) {
+            return Some(profile);
+        }
+
+        self.profiles.iter().find_map(|(configured_key, profile)| {
+            let configured_agent = crate::agent::Agent::from_name(configured_key);
+            (configured_agent.config_key() == canonical_key).then_some(profile)
+        })
     }
 
     /// Get the effective trust level for an agent.
@@ -6669,6 +6686,67 @@ enabled = false
         // The "unknown" key itself should also match
         let profile = config.profile_for("unknown");
         assert_eq!(profile.trust_level, TrustLevel::Low);
+    }
+
+    #[test]
+    fn test_agents_config_profile_aliases_match_agent_detection_names() {
+        use crate::agent::Agent;
+
+        let mut config = AgentsConfig::default();
+        config.profiles.insert(
+            "codex".to_string(),
+            AgentProfile {
+                trust_level: TrustLevel::High,
+                extra_packs: vec!["strict_git".to_string()],
+                ..Default::default()
+            },
+        );
+        config.profiles.insert(
+            "claude_code".to_string(),
+            AgentProfile {
+                trust_level: TrustLevel::Low,
+                disabled_allowlist: true,
+                ..Default::default()
+            },
+        );
+
+        let codex_profile = config.profile_for_agent(&Agent::CodexCli);
+        assert_eq!(codex_profile.trust_level, TrustLevel::High);
+        assert!(
+            codex_profile
+                .extra_packs
+                .contains(&"strict_git".to_string())
+        );
+
+        let claude_profile = config.profile_for("claude-code");
+        assert_eq!(claude_profile.trust_level, TrustLevel::Low);
+        assert!(claude_profile.disabled_allowlist);
+    }
+
+    #[test]
+    fn test_agents_config_canonical_profile_key_takes_precedence_over_alias() {
+        use crate::agent::Agent;
+
+        let mut config = AgentsConfig::default();
+        config.profiles.insert(
+            "codex".to_string(),
+            AgentProfile {
+                trust_level: TrustLevel::Low,
+                ..Default::default()
+            },
+        );
+        config.profiles.insert(
+            "codex-cli".to_string(),
+            AgentProfile {
+                trust_level: TrustLevel::High,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            config.profile_for_agent(&Agent::CodexCli).trust_level,
+            TrustLevel::High
+        );
     }
 
     #[test]

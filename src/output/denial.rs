@@ -1186,7 +1186,12 @@ mod tests {
     #[test]
     fn test_denial_box_without_branch_context() {
         let span = HighlightSpan::new(0, 10);
-        let denial = DenialBox::new("git reset --hard", span, "core.git:reset_hard", Severity::Critical);
+        let denial = DenialBox::new(
+            "git reset --hard",
+            span,
+            "core.git:reset_hard",
+            Severity::Critical,
+        );
 
         assert!(denial.branch_name.is_none());
         assert!(!denial.is_protected_branch);
@@ -1201,8 +1206,13 @@ mod tests {
     #[test]
     fn test_denial_box_with_branch_name() {
         let span = HighlightSpan::new(0, 10);
-        let denial = DenialBox::new("git reset --hard", span, "core.git:reset_hard", Severity::Critical)
-            .with_branch_context("feature/my-branch", false);
+        let denial = DenialBox::new(
+            "git reset --hard",
+            span,
+            "core.git:reset_hard",
+            Severity::Critical,
+        )
+        .with_branch_context("feature/my-branch", false);
 
         assert_eq!(denial.branch_name.as_deref(), Some("feature/my-branch"));
         assert!(!denial.is_protected_branch);
@@ -1216,8 +1226,13 @@ mod tests {
     #[test]
     fn test_denial_box_with_protected_branch() {
         let span = HighlightSpan::new(0, 10);
-        let denial = DenialBox::new("git reset --hard", span, "core.git:reset_hard", Severity::Critical)
-            .with_branch_context("main", true);
+        let denial = DenialBox::new(
+            "git reset --hard",
+            span,
+            "core.git:reset_hard",
+            Severity::Critical,
+        )
+        .with_branch_context("main", true);
 
         assert_eq!(denial.branch_name.as_deref(), Some("main"));
         assert!(denial.is_protected_branch);
@@ -1264,11 +1279,16 @@ mod tests {
     #[test]
     fn test_denial_box_all_fields_with_branch() {
         let span = HighlightSpan::with_label(0, 10, "Matched");
-        let denial = DenialBox::new("git push --force", span, "core.git:push_force", Severity::High)
-            .with_explanation("Force push overwrites remote history")
-            .with_alternatives(vec!["Use git push --force-with-lease".to_string()])
-            .with_allow_once_code("abc12")
-            .with_branch_context("main", true);
+        let denial = DenialBox::new(
+            "git push --force",
+            span,
+            "core.git:push_force",
+            Severity::High,
+        )
+        .with_explanation("Force push overwrites remote history")
+        .with_alternatives(vec!["Use git push --force-with-lease".to_string()])
+        .with_allow_once_code("abc12")
+        .with_branch_context("main", true);
 
         let output = denial.render_plain();
         assert!(output.contains("BLOCKED (Protected Branch: main)"));

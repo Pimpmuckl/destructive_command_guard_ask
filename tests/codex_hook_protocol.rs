@@ -2389,15 +2389,14 @@ fn heredoc_python_cross_protocol_parity() {
     let claude = run_claude_hook(cmd);
 
     assert!(codex.is_codex_block_shape(), "Codex must block\n{codex}");
-    assert!(claude.is_claude_block_shape(), "Claude must block\n{claude}");
+    assert!(
+        claude.is_claude_block_shape(),
+        "Claude must block\n{claude}"
+    );
 
     let json = claude.stdout_json();
-    let claude_rule = json["hookSpecificOutput"]["ruleId"]
-        .as_str()
-        .unwrap_or("");
-    let claude_pack = json["hookSpecificOutput"]["packId"]
-        .as_str()
-        .unwrap_or("");
+    let claude_rule = json["hookSpecificOutput"]["ruleId"].as_str().unwrap_or("");
+    let claude_pack = json["hookSpecificOutput"]["packId"].as_str().unwrap_or("");
 
     assert!(
         codex.stderr_contains(claude_pack),
@@ -2406,7 +2405,7 @@ fn heredoc_python_cross_protocol_parity() {
         codex.stderr_str(),
         claude.stdout_str()
     );
-    let pattern_part = claude_rule.split(':').last().unwrap_or("");
+    let pattern_part = claude_rule.split(':').next_back().unwrap_or("");
     assert!(
         codex.stderr_contains(pattern_part),
         "Codex stderr must mention same pattern '{pattern_part}' from Claude ruleId '{claude_rule}'\n\
@@ -2422,12 +2421,13 @@ fn heredoc_javascript_cross_protocol_parity() {
     let claude = run_claude_heredoc(cmd);
 
     assert!(codex.is_codex_block_shape(), "Codex must block\n{codex}");
-    assert!(claude.is_claude_block_shape(), "Claude must block\n{claude}");
+    assert!(
+        claude.is_claude_block_shape(),
+        "Claude must block\n{claude}"
+    );
 
     let json = claude.stdout_json();
-    let claude_pack = json["hookSpecificOutput"]["packId"]
-        .as_str()
-        .unwrap_or("");
+    let claude_pack = json["hookSpecificOutput"]["packId"].as_str().unwrap_or("");
 
     assert!(
         codex.stderr_contains(claude_pack),

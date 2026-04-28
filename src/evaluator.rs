@@ -490,6 +490,9 @@ pub struct EvaluationResult {
     pub skipped_due_to_budget: bool,
     /// Git branch context (present when branch awareness is enabled).
     pub branch_context: Option<BranchContext>,
+    /// Session occurrence snapshot (present when the command matched a pattern).
+    /// Tracks how many times this command has been seen in the current process.
+    pub session_occurrence: Option<crate::session::OccurrenceSnapshot>,
 }
 
 impl EvaluationResult {
@@ -504,6 +507,7 @@ impl EvaluationResult {
             effective_mode: None,
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -518,6 +522,7 @@ impl EvaluationResult {
             effective_mode: None,
             skipped_due_to_budget: true,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -542,6 +547,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -566,6 +572,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -591,6 +598,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -615,6 +623,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -646,6 +655,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -677,6 +687,7 @@ impl EvaluationResult {
             effective_mode: Some(severity.default_mode()),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -711,6 +722,7 @@ impl EvaluationResult {
             effective_mode: Some(severity.default_mode()),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -733,6 +745,7 @@ impl EvaluationResult {
             effective_mode: Some(crate::packs::DecisionMode::Deny),
             skipped_due_to_budget: false,
             branch_context: None,
+            session_occurrence: None,
         }
     }
 
@@ -2065,6 +2078,7 @@ fn evaluate_heredoc(
                             effective_mode: Some(crate::packs::DecisionMode::Deny),
                             skipped_due_to_budget: false,
                             branch_context: None,
+                            session_occurrence: None,
                         });
                     }
                     return Some(result);
@@ -2146,6 +2160,7 @@ fn evaluate_heredoc(
                 effective_mode: Some(crate::packs::DecisionMode::Deny),
                 skipped_due_to_budget: false,
                 branch_context: None,
+                session_occurrence: None,
             });
         }
     }
@@ -4116,12 +4131,9 @@ mod tests {
         ) -> EvaluationResult {
             let config = default_config();
             let enabled_packs = config.enabled_pack_ids();
-            let ordered_packs =
-                crate::packs::REGISTRY.expand_enabled_ordered(&enabled_packs);
-            let enabled_keywords =
-                crate::packs::REGISTRY.collect_enabled_keywords(&enabled_packs);
-            let keyword_index =
-                crate::packs::REGISTRY.build_enabled_keyword_index(&ordered_packs);
+            let ordered_packs = crate::packs::REGISTRY.expand_enabled_ordered(&enabled_packs);
+            let enabled_keywords = crate::packs::REGISTRY.collect_enabled_keywords(&enabled_packs);
+            let keyword_index = crate::packs::REGISTRY.build_enabled_keyword_index(&ordered_packs);
             let compiled = default_compiled_overrides();
             let allowlists = default_allowlists();
 
