@@ -51,10 +51,10 @@ fn create_safe_patterns() -> Vec<SafePattern> {
             "compose-pull",
             r"(?:docker-compose|docker\s+compose)\s+pull"
         ),
-        // down without -v is less destructive
+        // down without -v/--rmi is less destructive
         safe_pattern!(
             "compose-down-no-volumes",
-            r"(?:docker-compose|docker\s+compose)\s+down(?!\s+.*(?:-v|--volumes))"
+            r"(?:docker-compose|docker\s+compose)\s+down(?!\s+.*(?:-v\b|--volumes|--rmi))"
         ),
     ]
 }
@@ -132,8 +132,8 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packs::test_helpers::*;
     use crate::packs::Severity;
+    use crate::packs::test_helpers::*;
 
     #[test]
     fn compose_blocks_down_with_volumes() {
