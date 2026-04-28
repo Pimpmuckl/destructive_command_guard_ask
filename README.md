@@ -1052,7 +1052,7 @@ While the hook protects **interactive** command execution, teams also need prote
 - A replacement for code review
 - A static analysis tool for arbitrary languages
 
-The key difference from grep: `dcg scan` understands that `"rm -rf /"` in a comment is data, not code. It uses extractors that understand file structure (shell scripts, Dockerfiles, GitHub Actions, Makefiles) to find only actually-executed commands.
+The key difference from grep: `dcg scan` understands that `"rm -rf /"` in a comment is data, not code. It uses extractors that understand file structure (shell scripts, Dockerfiles, CI workflows, package scripts, Makefiles, Terraform, Docker Compose) to find only actually-executed commands.
 
 ### Supported File Formats
 
@@ -1060,13 +1060,16 @@ dcg scan includes specialized extractors for each file format, understanding whi
 
 | File Type | Detection | Executable Contexts |
 |-----------|-----------|---------------------|
-| **Shell Scripts** | `*.sh`, `*.bash`, `*.zsh` | All non-comment, non-assignment lines |
-| **Dockerfile** | `Dockerfile`, `*.dockerfile` | `RUN` instructions (shell and exec forms) |
-| **GitHub Actions** | `.github/workflows/*.yml` | `run:` fields in steps |
-| **GitLab CI** | `.gitlab-ci.yml` | `script:`, `before_script:`, `after_script:` |
+| **Shell Scripts** | `*.sh`, `*.bash`, `*.zsh`, `*.dash`, `*.ksh` | Non-comment executable command lines |
+| **Dockerfile** | `Dockerfile`, `Dockerfile.*`, `*.dockerfile` | `RUN` instructions (shell and exec forms) |
+| **GitHub Actions** | `.github/workflows/*.yml`, `.github/workflows/*.yaml` | `run:` fields in steps |
+| **GitLab CI** | `.gitlab-ci.yml`, `*.gitlab-ci.yml` | `script:`, `before_script:`, `after_script:` |
+| **Azure Pipelines** | `azure-pipelines.yml`, `azure-pipelines.yaml`, `azure-pipelines-*.yml`, `azure-pipelines-*.yaml` | `script:`, `bash:`, `powershell:`, `pwsh:` tasks |
+| **CircleCI** | `.circleci/config.yml`, `.circleci/config.yaml` | `run:` steps and nested `command:` fields |
 | **Makefile** | `Makefile` | Tab-indented recipe lines |
+| **package.json** | `package.json` | `scripts` object values |
 | **Terraform** | `*.tf` | `provisioner` blocks (`local-exec`, `remote-exec`) |
-| **Docker Compose** | `docker-compose.yml`, `compose.yml` | `command:` and `entrypoint:` fields |
+| **Docker Compose** | `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` | `command:`, `entrypoint:`, `healthcheck.test:` fields |
 
 **Context-Aware Extraction**:
 

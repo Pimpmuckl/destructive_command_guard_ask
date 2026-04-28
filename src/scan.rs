@@ -628,10 +628,12 @@ pub type ScanProgressCallback<'a> = &'a mut dyn FnMut(usize, usize, &str);
 /// - Dockerfile extractor (`Dockerfile`, `*.dockerfile`, `Dockerfile.*`)
 /// - GitHub Actions workflow extractor (`.github/workflows/*.yml|*.yaml`)
 /// - GitLab CI extractor (`.gitlab-ci.yml`, `*.gitlab-ci.yml`)
+/// - Azure Pipelines extractor (`azure-pipelines*.yml|*.yaml`)
+/// - CircleCI extractor (`.circleci/config.yml|config.yaml`)
 /// - Makefile extractor (`Makefile`)
 /// - package.json extractor (`package.json` - scripts only)
 /// - Terraform extractor (`*.tf` - provisioner blocks)
-/// - docker-compose extractor (`docker-compose.yml`, `compose.yml` - command/entrypoint)
+/// - docker-compose extractor (`docker-compose.yml`, `compose.yml` - command/entrypoint/healthcheck)
 #[allow(clippy::missing_errors_doc)]
 #[allow(clippy::too_many_lines)]
 pub fn scan_paths(
