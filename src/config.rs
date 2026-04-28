@@ -3287,7 +3287,10 @@ impl Config {
     /// Check if the bypass flag is set (escape hatch).
     #[must_use]
     pub fn is_bypassed() -> bool {
-        env::var(format!("{ENV_PREFIX}_BYPASS")).is_ok()
+        env::var(format!("{ENV_PREFIX}_BYPASS"))
+            .ok()
+            .and_then(|value| parse_env_bool(&value))
+            .unwrap_or(false)
     }
 
     /// Get the effective pack configuration for a specific project path.

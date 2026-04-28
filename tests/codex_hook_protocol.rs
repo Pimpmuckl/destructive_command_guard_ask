@@ -793,16 +793,22 @@ fn claude_bypass_destructive_command_fully_silent() {
 }
 
 #[test]
-fn claude_bypass_empty_string_also_triggers() {
-    let outcome = run_claude_hook_with_env("git reset --hard HEAD~1", &[("DCG_BYPASS", "")], &[]);
-    assert_eq!(
-        outcome.exit_code, 0,
-        "DCG_BYPASS='' (empty) must still trigger bypass\n{outcome}"
-    );
-    assert!(
-        outcome.stdout.is_empty(),
-        "DCG_BYPASS='' must produce no stdout\n{outcome}"
-    );
+fn bypass_requires_explicit_truthy_value() {
+    for value in ["", "0", "false", "no", "off"] {
+        let codex =
+            run_codex_hook_with_env("git reset --hard HEAD~1", &[("DCG_BYPASS", value)], &[]);
+        assert!(
+            codex.is_codex_block_shape(),
+            "DCG_BYPASS={value:?} must not bypass Codex denial\n{codex}"
+        );
+
+        let claude =
+            run_claude_hook_with_env("git reset --hard HEAD~1", &[("DCG_BYPASS", value)], &[]);
+        assert!(
+            claude.is_claude_block_shape(),
+            "DCG_BYPASS={value:?} must not bypass Claude denial\n{claude}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
