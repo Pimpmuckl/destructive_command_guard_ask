@@ -97,6 +97,7 @@ vergen-gix = { version = "10.0.0-beta.5", features = ["build", "cargo", "rustc"]
 
 [dev-dependencies]
 assert_cmd = "2.0"
+insta = { version = "1.40", features = ["yaml"] }
 predicates = "3.1"
 tempfile = "3.14"
 proptest = "1.4"
