@@ -18,6 +18,9 @@ use crate::evaluator::EvaluationDecision;
 use crate::trace::{ExplainTrace, MatchInfo, PackSummary, TraceDetails, TraceStep};
 use std::collections::BTreeMap;
 
+/// Default maximum number of patterns shown per pack section in verbose trees.
+pub const DEFAULT_PACK_TREE_MAX_PATTERNS: usize = 10;
+
 /// Pattern details rendered under a pack in verbose tree output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackTreePattern {
@@ -52,6 +55,47 @@ impl PackTreePattern {
             regex: regex.into(),
             severity: Some(severity.into()),
         }
+    }
+}
+
+/// Rendering options for the `dcg packs` tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackTreeOptions {
+    /// Whether to include descriptions and pattern details.
+    pub verbose: bool,
+    /// Whether to show every pattern instead of truncating large sections.
+    pub expand: bool,
+    /// Maximum number of patterns shown per section when not expanded.
+    pub max_patterns: usize,
+}
+
+impl PackTreeOptions {
+    /// Create pack tree options using the default pattern limit.
+    #[must_use]
+    pub const fn new(verbose: bool) -> Self {
+        Self {
+            verbose,
+            expand: false,
+            max_patterns: DEFAULT_PACK_TREE_MAX_PATTERNS,
+        }
+    }
+
+    /// Enable or disable expanded pattern rendering.
+    #[must_use]
+    pub const fn expand(mut self, expand: bool) -> Self {
+        self.expand = expand;
+        self
+    }
+
+    /// Set the maximum number of patterns rendered per section.
+    #[must_use]
+    pub const fn max_patterns(mut self, max_patterns: usize) -> Self {
+        self.max_patterns = max_patterns;
+        self
+    }
+
+    fn normalized_max_patterns(self) -> usize {
+        self.max_patterns.max(1)
     }
 }
 
@@ -903,6 +947,12 @@ fn suggestions_node(trace: &ExplainTrace) -> Option<TreeNode> {
 /// Build the rich/plain tree used by `dcg packs`.
 #[must_use]
 pub fn pack_list_tree(items: &[PackTreeItem], verbose: bool) -> DcgTree {
+    pack_list_tree_with_options(items, PackTreeOptions::new(verbose))
+}
+
+/// Build the rich/plain tree used by `dcg packs` with explicit render options.
+#[must_use]
+pub fn pack_list_tree_with_options(items: &[PackTreeItem], options: PackTreeOptions) -> DcgTree {
     let mut by_category: BTreeMap<&str, Vec<&PackTreeItem>> = BTreeMap::new();
     for item in items {
         by_category
@@ -921,7 +971,7 @@ pub fn pack_list_tree(items: &[PackTreeItem], verbose: bool) -> DcgTree {
             root = root.child(
                 TreeNode::new(category)
                     .styled("[bold]")
-                    .children(packs.into_iter().map(|pack| pack_tree_node(pack, verbose))),
+                    .children(packs.into_iter().map(|pack| pack_tree_node(pack, options))),
             );
         }
     }
@@ -937,10 +987,10 @@ pub fn pack_list_tree(items: &[PackTreeItem], verbose: bool) -> DcgTree {
     DcgTree::new(root).guides(DcgTreeGuides::Rounded)
 }
 
-fn pack_tree_node(pack: &PackTreeItem, verbose: bool) -> TreeNode {
+fn pack_tree_node(pack: &PackTreeItem, options: PackTreeOptions) -> TreeNode {
     let status = if pack.enabled { "●" } else { "○" };
     let style = if pack.enabled { "[green]" } else { "[dim]" };
-    let label = if verbose {
+    let label = if options.verbose {
         let description = markdown_single_line(&pack.description);
         format!(
             "{} - {} ({} safe, {} destructive)",
@@ -952,14 +1002,19 @@ fn pack_tree_node(pack: &PackTreeItem, verbose: bool) -> TreeNode {
 
     let mut node = TreeNode::with_icon(status, label).styled(style);
 
-    if verbose {
+    if options.verbose {
         if !pack.safe_patterns.is_empty() {
-            node = node.child(pattern_group_node("Safe patterns", &pack.safe_patterns));
+            node = node.child(pattern_group_node(
+                "Safe patterns",
+                &pack.safe_patterns,
+                options,
+            ));
         }
         if !pack.destructive_patterns.is_empty() {
             node = node.child(pattern_group_node(
                 "Destructive patterns",
                 &pack.destructive_patterns,
+                options,
             ));
         }
     }
@@ -978,20 +1033,68 @@ fn markdown_single_line(text: &str) -> String {
     .join(" ")
 }
 
-fn pattern_group_node(title: &str, patterns: &[PackTreePattern]) -> TreeNode {
+fn pattern_group_node(
+    title: &str,
+    patterns: &[PackTreePattern],
+    options: PackTreeOptions,
+) -> TreeNode {
     let use_color = crate::output::auto_theme().colors_enabled;
+    let total = patterns.len();
+    let section_title = if total > options.normalized_max_patterns() && !options.expand {
+        format!("{title} ({total} total)")
+    } else {
+        title.to_string()
+    };
 
-    TreeNode::new(title)
-        .styled("[dim]")
-        .children(patterns.iter().map(|pattern| {
-            let regex = crate::highlight::format_regex_pattern(&pattern.regex, use_color);
-            let label = if let Some(severity) = &pattern.severity {
-                format!("{} [{}]: {}", pattern.name, severity, regex)
-            } else {
-                format!("{}: {}", pattern.name, regex)
-            };
-            TreeNode::new(label)
-        }))
+    let mut node = TreeNode::new(section_title).styled("[dim]");
+
+    if options.expand || total <= options.normalized_max_patterns() {
+        return node.children(
+            patterns
+                .iter()
+                .map(|pattern| pattern_tree_node(pattern, use_color)),
+        );
+    }
+
+    let max_patterns = options.normalized_max_patterns();
+    let head_count = max_patterns.div_ceil(2);
+    let tail_count = max_patterns.saturating_sub(head_count);
+    let hidden_count = total.saturating_sub(head_count + tail_count);
+
+    node = node.children(
+        patterns
+            .iter()
+            .take(head_count)
+            .map(|pattern| pattern_tree_node(pattern, use_color)),
+    );
+
+    node = node.child(
+        TreeNode::new(format!(
+            "... {hidden_count} more patterns (--expand to show all)"
+        ))
+        .styled("[dim]"),
+    );
+
+    if tail_count > 0 {
+        node = node.children(
+            patterns
+                .iter()
+                .skip(total - tail_count)
+                .map(|pattern| pattern_tree_node(pattern, use_color)),
+        );
+    }
+
+    node
+}
+
+fn pattern_tree_node(pattern: &PackTreePattern, use_color: bool) -> TreeNode {
+    let regex = crate::highlight::format_regex_pattern(&pattern.regex, use_color);
+    let label = if let Some(severity) = &pattern.severity {
+        format!("{} [{}]: {}", pattern.name, severity, regex)
+    } else {
+        format!("{}: {}", pattern.name, regex)
+    };
+    TreeNode::new(label)
 }
 
 #[cfg(test)]
@@ -1398,6 +1501,70 @@ mod tests {
         assert!(output.contains("Destructive patterns"));
         assert!(output.contains("reset-hard [critical]:"));
         assert!(output.contains(r"git\s+(?:\S+\s+)*reset\s+--hard"));
+    }
+
+    #[test]
+    fn test_pack_list_tree_truncates_large_pattern_sections() {
+        let safe_patterns: Vec<_> = (1..=8)
+            .map(|index| PackTreePattern::safe(format!("safe-{index}"), format!("^safe{index}$")))
+            .collect();
+        let items = vec![
+            PackTreeItem::new(
+                "core.large",
+                "Large",
+                "core",
+                "Protects large command sets",
+                true,
+                8,
+                0,
+            )
+            .with_patterns(safe_patterns, vec![]),
+        ];
+
+        let lines = pack_list_tree_with_options(&items, PackTreeOptions::new(true).max_patterns(4))
+            .guides(DcgTreeGuides::Ascii)
+            .render_plain();
+        let output = lines.join("\n");
+
+        assert!(output.contains("Safe patterns (8 total)"));
+        assert!(output.contains("safe-1: ^safe1$"));
+        assert!(output.contains("safe-2: ^safe2$"));
+        assert!(output.contains("... 4 more patterns (--expand to show all)"));
+        assert!(output.contains("safe-7: ^safe7$"));
+        assert!(output.contains("safe-8: ^safe8$"));
+        assert!(!output.contains("safe-3: ^safe3$"));
+    }
+
+    #[test]
+    fn test_pack_list_tree_expand_shows_all_patterns() {
+        let safe_patterns: Vec<_> = (1..=6)
+            .map(|index| PackTreePattern::safe(format!("safe-{index}"), format!("^safe{index}$")))
+            .collect();
+        let items = vec![
+            PackTreeItem::new(
+                "core.large",
+                "Large",
+                "core",
+                "Protects large command sets",
+                true,
+                6,
+                0,
+            )
+            .with_patterns(safe_patterns, vec![]),
+        ];
+
+        let lines = pack_list_tree_with_options(
+            &items,
+            PackTreeOptions::new(true).expand(true).max_patterns(2),
+        )
+        .guides(DcgTreeGuides::Ascii)
+        .render_plain();
+        let output = lines.join("\n");
+
+        for index in 1..=6 {
+            assert!(output.contains(&format!("safe-{index}: ^safe{index}$")));
+        }
+        assert!(!output.contains("more patterns"));
     }
 
     #[test]

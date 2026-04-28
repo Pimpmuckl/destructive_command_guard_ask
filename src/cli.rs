@@ -323,6 +323,14 @@ pub enum Command {
         #[arg(long)]
         enabled: bool,
 
+        /// Show all patterns in verbose pack trees
+        #[arg(long)]
+        expand: bool,
+
+        /// Maximum patterns to show per verbose section before truncating
+        #[arg(long, value_name = "N", default_value_t = crate::output::DEFAULT_PACK_TREE_MAX_PATTERNS)]
+        max_patterns: usize,
+
         // NOTE: Removed `verbose: bool` - use global `-v`/`--verbose` instead.
         // The global flag (u8 count) conflicts with local bool flags.
         /// Output format (json for structured output, pretty for human-readable)
@@ -1926,7 +1934,12 @@ pub fn run_command(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Some(Command::Completions { shell }) => {
             write_completions(shell)?;
         }
-        Some(Command::ListPacks { enabled, format }) => {
+        Some(Command::ListPacks {
+            enabled,
+            expand,
+            max_patterns,
+            format,
+        }) => {
             // Robot mode forces JSON output
             let robot_mode = robot_mode_enabled(cli.robot);
             let effective_format = if robot_mode {
@@ -1945,6 +1958,8 @@ pub fn run_command(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 verbosity.is_verbose(),
                 effective_format,
                 verbosity.quiet,
+                expand,
+                max_patterns,
             );
         }
         Some(Command::Pack { action }) => {
@@ -2442,6 +2457,8 @@ fn list_packs(
     verbose: bool,
     format: PacksFormat,
     quiet: bool,
+    expand: bool,
+    max_patterns: usize,
 ) {
     if quiet {
         return;
@@ -2507,7 +2524,7 @@ fn list_packs(
     // Rich output when feature enabled
     #[cfg(feature = "rich-output")]
     {
-        list_packs_rich(&pack_list, verbose);
+        list_packs_rich(&pack_list, verbose, expand, max_patterns);
     }
 
     // Pretty output (default, non-rich fallback)
@@ -2542,7 +2559,7 @@ fn list_packs(
                         info.safe_pattern_count,
                         info.destructive_pattern_count
                     );
-                    print_pack_patterns_plain(info);
+                    print_pack_patterns_plain(info, expand, max_patterns);
                 } else {
                     println!("    {} {} - {}", status, info.id, info.name);
                 }
@@ -2557,34 +2574,75 @@ fn list_packs(
 }
 
 #[cfg(not(feature = "rich-output"))]
-fn print_pack_patterns_plain(info: &PackInfo) {
+fn print_pack_patterns_plain(info: &PackInfo, expand: bool, max_patterns: usize) {
     let Some(pack) = REGISTRY.get(&info.id) else {
         return;
     };
     let use_color = crate::output::auto_theme().colors_enabled;
 
-    if !pack.safe_patterns.is_empty() {
-        println!("      Safe patterns:");
-        for pattern in &pack.safe_patterns {
+    let safe_patterns = pack
+        .safe_patterns
+        .iter()
+        .map(|pattern| {
             let regex = crate::highlight::format_regex_pattern(pattern.regex.as_str(), use_color);
-            println!("        - {}: {}", pattern.name, regex);
-        }
-    }
+            format!("{}: {}", pattern.name, regex)
+        })
+        .collect();
+    print_pack_pattern_lines("Safe patterns", safe_patterns, expand, max_patterns);
 
-    if !pack.destructive_patterns.is_empty() {
-        println!("      Destructive patterns:");
-        for pattern in &pack.destructive_patterns {
+    let destructive_patterns = pack
+        .destructive_patterns
+        .iter()
+        .map(|pattern| {
             let name = pattern.name.unwrap_or("unnamed");
             let severity_label = pattern.severity.label();
             let regex = crate::highlight::format_regex_pattern(pattern.regex.as_str(), use_color);
-            println!("        - {name} [{severity_label}]: {regex}");
+            format!("{name} [{severity_label}]: {regex}")
+        })
+        .collect();
+    print_pack_pattern_lines(
+        "Destructive patterns",
+        destructive_patterns,
+        expand,
+        max_patterns,
+    );
+}
+
+#[cfg(not(feature = "rich-output"))]
+fn print_pack_pattern_lines(title: &str, lines: Vec<String>, expand: bool, max_patterns: usize) {
+    if lines.is_empty() {
+        return;
+    }
+
+    println!("      {title}:");
+    let total = lines.len();
+    let max_patterns = max_patterns.max(1);
+
+    if expand || total <= max_patterns {
+        for line in lines {
+            println!("        - {line}");
+        }
+        return;
+    }
+
+    let head_count = max_patterns.div_ceil(2);
+    let tail_count = max_patterns.saturating_sub(head_count);
+    let hidden_count = total.saturating_sub(head_count + tail_count);
+
+    for line in lines.iter().take(head_count) {
+        println!("        - {line}");
+    }
+    println!("        - ... {hidden_count} more patterns (--expand to show all)");
+    if tail_count > 0 {
+        for line in lines.iter().skip(total - tail_count) {
+            println!("        - {line}");
         }
     }
 }
 
 /// Rich terminal packs output using DcgConsole and markup.
 #[cfg(feature = "rich-output")]
-fn list_packs_rich(pack_list: &[PackInfo], verbose: bool) {
+fn list_packs_rich(pack_list: &[PackInfo], verbose: bool, expand: bool, max_patterns: usize) {
     let tree_items: Vec<_> = pack_list
         .iter()
         .map(|info| {
@@ -2629,7 +2687,11 @@ fn list_packs_rich(pack_list: &[PackInfo], verbose: bool) {
         })
         .collect();
 
-    crate::output::pack_list_tree(&tree_items, verbose)
+    let options = crate::output::PackTreeOptions::new(verbose)
+        .expand(expand)
+        .max_patterns(max_patterns);
+
+    crate::output::pack_list_tree_with_options(&tree_items, options)
         .with_theme(&crate::output::auto_theme())
         .render();
 }
@@ -13455,6 +13517,22 @@ mod tests {
             assert_eq!(command, "git reset --hard");
         } else {
             unreachable!("Expected TestCommand command");
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_packs_pattern_tree_controls() {
+        let cli = Cli::parse_from(["dcg", "packs", "--expand", "--max-patterns", "6"]);
+        if let Some(Command::ListPacks {
+            expand,
+            max_patterns,
+            ..
+        }) = cli.command
+        {
+            assert!(expand);
+            assert_eq!(max_patterns, 6);
+        } else {
+            unreachable!("Expected ListPacks");
         }
     }
 
