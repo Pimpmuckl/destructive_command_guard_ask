@@ -1259,11 +1259,6 @@ pub fn evaluate_command_with_pack_order_deadline_at_path(
         return EvaluationResult::denied_by_config(reason.to_string());
     }
 
-    // Step 1.6: Check allow-once overrides.
-    if allow_once_match(command, allow_once_audit).is_some() {
-        return EvaluationResult::allowed();
-    }
-
     if deadline_exceeded(deadline) {
         return EvaluationResult::allowed_due_to_budget();
     }
@@ -1349,6 +1344,14 @@ pub fn evaluate_command_with_pack_order_deadline_at_path(
 
     if deadline_exceeded(deadline) {
         return EvaluationResult::allowed_due_to_budget();
+    }
+
+    // Deferred allow-once check: moved here from before keyword quick-reject.
+    // Allow-once entries only exist for previously blocked commands, which must
+    // have matched keywords — so deferring past quick-reject is safe and avoids
+    // ~65µs of filesystem I/O on every unrelated command.
+    if allow_once_match(command, allow_once_audit).is_some() {
+        return EvaluationResult::allowed();
     }
 
     // Check exact command and prefix allowlists (reusing normalized from quick-reject)
