@@ -488,6 +488,17 @@ pub struct SuggestionCandidate {
     pub bypass_count: u64,
     /// Most recent timestamp when the command was bypassed.
     pub last_seen: DateTime<Utc>,
+    /// Stable rule identifier associated with the bypassed command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+    /// Pack ID that matched the bypassed command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack_id: Option<String>,
+    /// Pattern name that matched the bypassed command.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_name: Option<String>,
+    /// Ranking score based on repeated bypasses and recency.
+    pub confidence_score: f64,
 }
 
 /// Helper for history analysis queries used by suggestion heuristics.
@@ -587,13 +598,37 @@ impl<'a> HistoryAnalyzer<'a> {
     ///
     /// Returns an error if the query fails.
     pub fn get_suggestion_candidates(&self) -> Result<Vec<SuggestionCandidate>, HistoryError> {
-        let rows = self.conn.query(
-            "SELECT command, COUNT(*) as bypass_count, MAX(timestamp) as last_seen
+        self.get_bypass_patterns(1)
+    }
+
+    /// Return bypassed commands meeting the threshold for permanent allowlist suggestions.
+    ///
+    /// This groups allow-once bypasses by command, carries the best available
+    /// rule metadata forward, and scores candidates by frequency and recency.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails.
+    pub fn get_bypass_patterns(
+        &self,
+        min_count: u32,
+    ) -> Result<Vec<SuggestionCandidate>, HistoryError> {
+        let min_count_i64 = i64::from(min_count.max(1));
+
+        let rows = self.conn.query(&inline_params(
+            "SELECT command,
+                    COUNT(*) as bypass_count,
+                    MAX(timestamp) as last_seen,
+                    MAX(rule_id) as rule_id,
+                    MAX(pack_id) as pack_id,
+                    MAX(pattern_name) as pattern_name
              FROM commands
              WHERE outcome = 'bypass'
              GROUP BY command
-             ORDER BY bypass_count DESC, command ASC",
-        )?;
+             HAVING COUNT(*) >= ?1
+             ORDER BY bypass_count DESC, last_seen DESC, command ASC",
+            &[SqliteValue::Integer(min_count_i64)],
+        ))?;
 
         let mut candidates = Vec::new();
         for row in &rows {
@@ -603,10 +638,22 @@ impl<'a> HistoryAnalyzer<'a> {
             let last_seen_str = sv_to_string(&vals[2]);
             let last_seen = DateTime::parse_from_rfc3339(&last_seen_str)
                 .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+            let bypass_count = u64::try_from(bypass_count).unwrap_or(0);
+            let pack_id = sv_to_opt_string(&vals[4]);
+            let pattern_name = sv_to_opt_string(&vals[5]);
+            let rule_id = sv_to_opt_string(&vals[3]).or_else(|| match (&pack_id, &pattern_name) {
+                (Some(pack), Some(pattern)) => Some(format!("{pack}:{pattern}")),
+                _ => None,
+            });
+            let confidence_score = bypass_confidence_score(bypass_count, last_seen);
             candidates.push(SuggestionCandidate {
                 command,
-                bypass_count: u64::try_from(bypass_count).unwrap_or(0),
+                bypass_count,
                 last_seen,
+                rule_id,
+                pack_id,
+                pattern_name,
+                confidence_score,
             });
         }
 
@@ -661,6 +708,22 @@ fn count_to_u32(count: i64) -> u32 {
         return 0;
     }
     u32::try_from(count).unwrap_or(u32::MAX)
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn bypass_confidence_score(bypass_count: u64, last_seen: DateTime<Utc>) -> f64 {
+    let frequency_score = (bypass_count as f64 / 10.0).min(1.0);
+    let age_days = Utc::now()
+        .signed_duration_since(last_seen)
+        .num_days()
+        .max(0) as f64;
+    let recency_score = if age_days <= 1.0 {
+        1.0
+    } else {
+        (1.0 - (age_days / 30.0)).max(0.0)
+    };
+
+    (frequency_score.mul_add(0.65, recency_score * 0.35)).clamp(0.0, 1.0)
 }
 
 fn build_trends(current: &StatsSnapshot, previous: &StatsSnapshot) -> StatsTrends {
@@ -3661,12 +3724,26 @@ mod tests {
         working_dir: &str,
         timestamp: DateTime<Utc>,
     ) {
+        insert_command_with_match(db, command, outcome, working_dir, timestamp, None);
+    }
+
+    fn insert_command_with_match(
+        db: &HistoryDb,
+        command: &str,
+        outcome: Outcome,
+        working_dir: &str,
+        timestamp: DateTime<Utc>,
+        match_metadata: Option<(&str, &str, Option<&str>)>,
+    ) {
         let entry = CommandEntry {
             timestamp,
             agent_type: "claude_code".to_string(),
             working_dir: working_dir.to_string(),
             command: command.to_string(),
             outcome,
+            pack_id: match_metadata.map(|(pack, _, _)| pack.to_string()),
+            pattern_name: match_metadata.map(|(_, pattern, _)| pattern.to_string()),
+            rule_id: match_metadata.and_then(|(_, _, rule)| rule.map(str::to_string)),
             ..Default::default()
         };
         db.log_command(&entry).unwrap();
@@ -4806,6 +4883,69 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].command, "git clean -fd");
         assert_eq!(results[0].bypass_count, 2);
+    }
+
+    #[test]
+    fn test_history_analyzer_bypass_patterns_threshold_and_metadata() {
+        let db = HistoryDb::open_in_memory().unwrap();
+        let now = Utc::now() - Duration::hours(2);
+
+        for _ in 0..3 {
+            insert_command_with_match(
+                &db,
+                "git clean -fd",
+                Outcome::Bypass,
+                "/project/a",
+                now,
+                Some(("core.git", "clean-force", None)),
+            );
+        }
+        for _ in 0..2 {
+            insert_command_with_match(
+                &db,
+                "rm -rf ./tmp",
+                Outcome::Bypass,
+                "/project/b",
+                now,
+                Some(("core.filesystem", "rm-rf-general", None)),
+            );
+        }
+
+        let analyzer = HistoryAnalyzer::new(&db);
+        let results = analyzer.get_bypass_patterns(3).unwrap();
+
+        assert_eq!(results.len(), 1);
+        let candidate = &results[0];
+        assert_eq!(candidate.command, "git clean -fd");
+        assert_eq!(candidate.bypass_count, 3);
+        assert_eq!(candidate.rule_id.as_deref(), Some("core.git:clean-force"));
+        assert_eq!(candidate.pack_id.as_deref(), Some("core.git"));
+        assert_eq!(candidate.pattern_name.as_deref(), Some("clean-force"));
+        assert!((0.0..=1.0).contains(&candidate.confidence_score));
+        assert!(candidate.confidence_score > 0.0);
+    }
+
+    #[test]
+    fn test_history_analyzer_bypass_patterns_empty_history() {
+        let db = HistoryDb::open_in_memory().unwrap();
+        let analyzer = HistoryAnalyzer::new(&db);
+
+        let results = analyzer.get_bypass_patterns(3).unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_bypass_confidence_score_uses_frequency_and_recency() {
+        let recent = bypass_confidence_score(3, Utc::now());
+        let stale = bypass_confidence_score(3, Utc::now() - Duration::days(90));
+        let frequent_stale = bypass_confidence_score(8, Utc::now() - Duration::days(90));
+
+        assert!(recent > stale);
+        assert!(frequent_stale > stale);
+        assert!((0.0..=1.0).contains(&recent));
+        assert!((0.0..=1.0).contains(&stale));
+        assert!((0.0..=1.0).contains(&frequent_stale));
     }
 
     // ========================================================================
