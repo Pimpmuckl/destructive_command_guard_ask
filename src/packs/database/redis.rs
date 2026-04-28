@@ -140,11 +140,11 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
              Disable in production:\n  \
              CONFIG SET debug-command no"
         ),
-        // SHUTDOWN without NOSAVE
+        // SHUTDOWN (with or without NOSAVE)
         destructive_pattern!(
             "shutdown",
-            r"(?i)\bSHUTDOWN\b(?!\s+NOSAVE)",
-            "SHUTDOWN stops the Redis server. Use carefully.",
+            r"(?i)\bSHUTDOWN\b",
+            "SHUTDOWN stops the Redis server. SHUTDOWN NOSAVE risks data loss.",
             High,
             "SHUTDOWN stops the Redis server:\n\n\
              - SHUTDOWN SAVE: Saves RDB before exit (default)\n\
@@ -304,6 +304,8 @@ mod tests {
         assert_blocks(&pack, "redis-cli DEBUG SEGFAULT", "DEBUG");
         assert_blocks(&pack, "redis-cli DEBUG SLEEP 30", "DEBUG SLEEP");
         assert_blocks(&pack, "redis-cli SHUTDOWN", "SHUTDOWN");
+        assert_blocks(&pack, "redis-cli SHUTDOWN NOSAVE", "SHUTDOWN");
+        assert_blocks(&pack, "redis-cli SHUTDOWN SAVE", "SHUTDOWN");
         assert_blocks(&pack, "redis-cli CONFIG SET dir /tmp", "CONFIG SET");
         assert_blocks(&pack, "redis-cli CONFIG SET dbfilename x", "CONFIG SET");
         assert_blocks(&pack, "redis-cli CONFIG SET slaveof x", "CONFIG SET");

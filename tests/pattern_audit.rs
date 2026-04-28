@@ -311,7 +311,6 @@ fn test_audit_backtracking_requirements() {
                 "redis-info",
                 "redis-keys",
                 "redis-scan",
-                "shutdown",
             ]),
         ),
         ("dns.generic", HashSet::from(["dns-dig-safe"])),
