@@ -10,7 +10,7 @@
 //! Falls back to plain text format for non-TTY contexts.
 
 use super::theme::{BorderStyle, Severity, Theme};
-use crate::highlight::{HighlightSpan, format_highlighted_command};
+use crate::highlight::{HighlightSpan, format_highlighted_command, format_regex_pattern};
 #[cfg(feature = "rich-output")]
 use crate::output::rich_theme::{RichThemeExt, color_to_markup};
 use crate::output::terminal_width;
@@ -30,6 +30,8 @@ pub struct DenialBox {
     pub span: HighlightSpan,
     /// Pattern identifier (e.g., "`core.git:reset-hard`" or "`core.git.reset_hard`").
     pub pattern_id: String,
+    /// Optional raw regex pattern for rich pattern displays.
+    pub pattern_regex: Option<String>,
     /// Severity level of the match.
     pub severity: Severity,
     /// Optional explanation of why this command is blocked.
@@ -53,11 +55,27 @@ impl DenialBox {
             command: command.into(),
             span,
             pattern_id: pattern_id.into(),
+            pattern_regex: None,
             severity,
             explanation: None,
             alternatives: Vec::new(),
             allow_once_code: None,
         }
+    }
+
+    /// Add the raw regex pattern that matched.
+    #[must_use]
+    pub fn with_pattern_regex(mut self, pattern_regex: impl Into<String>) -> Self {
+        let pattern_regex = pattern_regex.into();
+        let trimmed = pattern_regex.trim();
+        if trimmed.is_empty() {
+            self.pattern_regex = None;
+        } else if trimmed.len() == pattern_regex.len() {
+            self.pattern_regex = Some(pattern_regex);
+        } else {
+            self.pattern_regex = Some(trimmed.to_string());
+        }
+        self
     }
 
     /// Add an explanation.
@@ -128,8 +146,12 @@ impl DenialBox {
         use rich_rust::r#box::{ASCII, DOUBLE, HEAVY, MINIMAL, ROUNDED};
         use rich_rust::prelude::*;
 
-        let pattern_lines =
-            format_pattern_lines(&self.pattern_id, theme.severity_label(self.severity));
+        let pattern_lines = format_pattern_lines(
+            &self.pattern_id,
+            theme.severity_label(self.severity),
+            self.pattern_regex.as_deref(),
+            theme.colors_enabled,
+        );
         let width = terminal_width().saturating_sub(8).max(40) as usize;
 
         // Build content as a Vec of lines
@@ -207,7 +229,12 @@ impl DenialBox {
         let mut output = String::new();
         let width = terminal_width().saturating_sub(4).max(40) as usize;
         let severity_label = format!("{:?}", self.severity).to_uppercase();
-        let pattern_lines = format_pattern_lines(&self.pattern_id, &severity_label);
+        let pattern_lines = format_pattern_lines(
+            &self.pattern_id,
+            &severity_label,
+            self.pattern_regex.as_deref(),
+            false,
+        );
 
         // Header
         let _ = writeln!(output, "BLOCKED: Destructive Command Detected");
@@ -258,8 +285,12 @@ impl DenialBox {
         let mut output = String::new();
         let severity_code = severity_color_code(theme, self.severity);
         let success_code = ansi_color_code(theme.success_color);
-        let pattern_lines =
-            format_pattern_lines(&self.pattern_id, theme.severity_label(self.severity));
+        let pattern_lines = format_pattern_lines(
+            &self.pattern_id,
+            theme.severity_label(self.severity),
+            self.pattern_regex.as_deref(),
+            theme.colors_enabled,
+        );
         let explanation_label = format!("\x1b[1;{}mExplanation:\x1b[0m", &severity_code);
 
         // Top border with header
@@ -435,8 +466,12 @@ impl DenialBox {
     fn render_ascii(&self, theme: &Theme) -> String {
         let width = terminal_width().saturating_sub(4).max(40) as usize;
         let mut output = String::new();
-        let pattern_lines =
-            format_pattern_lines(&self.pattern_id, theme.severity_label(self.severity));
+        let pattern_lines = format_pattern_lines(
+            &self.pattern_id,
+            theme.severity_label(self.severity),
+            self.pattern_regex.as_deref(),
+            false,
+        );
 
         // Top border with header
         let header = " !  BLOCKED: Destructive Command Detected ";
@@ -543,8 +578,12 @@ impl DenialBox {
         let mut output = String::new();
         let severity_code = severity_color_code(theme, self.severity);
         let success_code = ansi_color_code(theme.success_color);
-        let pattern_lines =
-            format_pattern_lines(&self.pattern_id, theme.severity_label(self.severity));
+        let pattern_lines = format_pattern_lines(
+            &self.pattern_id,
+            theme.severity_label(self.severity),
+            self.pattern_regex.as_deref(),
+            theme.colors_enabled,
+        );
 
         // Header with color
         let _ = writeln!(
@@ -735,15 +774,26 @@ fn split_pattern_id(pattern_id: &str) -> (Option<&str>, &str) {
     (None, pattern_id)
 }
 
-fn format_pattern_lines(pattern_id: &str, severity_label: &str) -> Vec<String> {
+fn format_pattern_lines(
+    pattern_id: &str,
+    severity_label: &str,
+    pattern_regex: Option<&str>,
+    use_color: bool,
+) -> Vec<String> {
     let (pack, pattern) = split_pattern_id(pattern_id);
-    match pack {
+    let mut lines = match pack {
         Some(pack_id) => vec![
             format!("Pattern: {pattern}"),
             format!("Pack: {pack_id} (severity: {severity_label})"),
         ],
         None => vec![format!("Pattern: {pattern} ({severity_label})")],
+    };
+
+    if let Some(regex) = pattern_regex {
+        lines.push(format!("Regex: {}", format_regex_pattern(regex, use_color)));
     }
+
+    lines
 }
 
 #[cfg(test)]
@@ -767,6 +817,25 @@ mod tests {
         assert!(output.contains("Pattern: reset_hard"));
         assert!(output.contains("Pack: core.git"));
         assert!(output.contains("CRITICAL"));
+    }
+
+    #[test]
+    fn test_denial_box_renders_pattern_regex_when_available() {
+        let span = HighlightSpan::with_label(0, 16, "Matched: git reset --hard");
+        let regex = r"^git\s+reset\s+--hard(?:\s|$)";
+        let denial = DenialBox::new(
+            "git reset --hard HEAD",
+            span,
+            "core.git:reset-hard",
+            Severity::Critical,
+        )
+        .with_pattern_regex(regex);
+
+        let output = denial.render_plain();
+
+        assert!(output.contains("Pattern: reset-hard"));
+        assert!(output.contains("Regex:"));
+        assert!(output.contains(regex));
     }
 
     #[test]

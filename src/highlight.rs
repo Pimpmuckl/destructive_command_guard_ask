@@ -248,6 +248,90 @@ fn colorize_command_with_span(command: &str, span: Option<&WindowedSpan>) -> Str
     format!("{before}{}{}", matched.red().bold(), after)
 }
 
+/// Format a regex pattern with syntax highlighting when color is enabled.
+///
+/// The rich-output build tries `rich_rust::Syntax` first. If the installed
+/// syntax set does not know regex patterns, this falls back to a small manual
+/// highlighter that colors regex metacharacters while preserving the pattern
+/// text byte-for-byte.
+#[must_use]
+pub fn format_regex_pattern(pattern: &str, use_color: bool) -> String {
+    if !use_color || pattern.is_empty() {
+        return pattern.to_string();
+    }
+
+    #[cfg(feature = "rich-output")]
+    if let Some(rendered) = render_regex_pattern_rich(pattern) {
+        return rendered;
+    }
+
+    format_regex_pattern_manual(pattern)
+}
+
+#[cfg(feature = "rich-output")]
+fn render_regex_pattern_rich(pattern: &str) -> Option<String> {
+    use rich_rust::prelude::{Console, Syntax};
+
+    const REGEX_LANGUAGE_ALIASES: &[&str] = &["regex", "re", "Regular Expressions"];
+    const THEME_ALIASES: &[&str] = &["python-rich-default", "base16-ocean.dark", "InspiredGitHub"];
+
+    for language in REGEX_LANGUAGE_ALIASES {
+        for theme in THEME_ALIASES {
+            let syntax = Syntax::new(pattern, *language)
+                .theme(*theme)
+                .line_numbers(false)
+                .padding(0, 0);
+            let Ok(segments) = syntax.render(None) else {
+                continue;
+            };
+            let mut rendered = Vec::new();
+            if Console::new()
+                .print_segments_to(&mut rendered, &segments)
+                .is_err()
+            {
+                continue;
+            }
+            let Ok(text) = String::from_utf8(rendered) else {
+                continue;
+            };
+            let trimmed = text.trim_end_matches(['\r', '\n']).to_string();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+    }
+
+    None
+}
+
+fn format_regex_pattern_manual(pattern: &str) -> String {
+    let mut result = String::with_capacity(pattern.len() + 32);
+    let mut chars = pattern.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            result.push_str(&ch.to_string().dimmed().to_string());
+            if let Some(escaped) = chars.next() {
+                result.push_str(&escaped.to_string().bright_cyan().to_string());
+            }
+            continue;
+        }
+
+        let styled = match ch {
+            '^' | '$' => ch.to_string().cyan().bold().to_string(),
+            '*' | '+' | '?' | '{' | '}' => ch.to_string().yellow().bold().to_string(),
+            '(' | ')' => ch.to_string().green().bold().to_string(),
+            '[' | ']' => ch.to_string().blue().bold().to_string(),
+            '|' => ch.to_string().magenta().bold().to_string(),
+            '.' => ch.to_string().bright_black().bold().to_string(),
+            _ => ch.to_string(),
+        };
+        result.push_str(&styled);
+    }
+
+    result
+}
+
 /// Format a command with caret highlighting using default settings.
 ///
 /// Convenience wrapper around `format_highlighted_command` that:
@@ -768,6 +852,28 @@ mod tests {
         );
 
         // Reset color override
+        colored::control::unset_override();
+    }
+
+    #[test]
+    fn test_format_regex_pattern_no_color_is_exact() {
+        let pattern = r"^git\s+reset\s+--hard(?:\s|$)";
+
+        assert_eq!(format_regex_pattern(pattern, false), pattern);
+    }
+
+    #[test]
+    fn test_manual_regex_pattern_highlights_metacharacters() {
+        colored::control::set_override(true);
+
+        let pattern = r"^(git|rm)\s+.+$";
+        let highlighted = format_regex_pattern_manual(pattern);
+
+        assert!(highlighted.contains('\x1b'));
+        assert!(highlighted.contains("git"));
+        assert!(highlighted.contains("rm"));
+        assert!(highlighted.contains("\\"));
+
         colored::control::unset_override();
     }
 
