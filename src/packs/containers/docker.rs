@@ -167,60 +167,69 @@ pub fn create_pack() -> Pack {
 }
 
 fn create_safe_patterns() -> Vec<SafePattern> {
-    // Two safeguards on each safe subcommand:
-    //   1. `(?:\s+--?\S+(?:\s+\S+)?)*` only accepts flag-value pairs between
+    // Four safeguards on each safe subcommand:
+    //   1. `^\s*docker\b` keeps the match on the top-level Docker command.
+    //      Nested command substitutions like `docker stop $(docker ps -q)`
+    //      must not satisfy the `docker-ps` safe pattern.
+    //   2. `(?:\s+--?\S+(?:\s+\S+)?)*` only accepts flag-value pairs between
     //      `docker` and the safe subcommand — so a destructive command like
     //      `docker rm -f ps` (container literally named `ps`) can't match
     //      `docker-ps` via the positional arg.
-    //   2. `(?=\s|$)` on the trailing side so a container name that starts
+    //   3. `(?=\s|$)` on the trailing side so a container name that starts
     //      with the subcommand keyword (e.g. `ps-container`, `logs-archive`)
     //      can't short-circuit destructive ops either.
+    //   4. The trailing argument matcher excludes shell separators and command
+    //      substitution markers, so a safe prefix inside a compound shell form
+    //      cannot shield a destructive Docker operation.
     vec![
         // docker ps/images/logs are safe (read-only)
         safe_pattern!(
             "docker-ps",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+ps(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+ps(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         safe_pattern!(
             "docker-images",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+images(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+images(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         safe_pattern!(
             "docker-logs",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+logs(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+logs(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker inspect is safe
         safe_pattern!(
             "docker-inspect",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+inspect(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+inspect(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker build is generally safe
         safe_pattern!(
             "docker-build",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+build(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+build(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker pull is safe
         safe_pattern!(
             "docker-pull",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+pull(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+pull(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker run is allowed (creates, doesn't destroy)
         safe_pattern!(
             "docker-run",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+run(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+run(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker exec is generally safe
         safe_pattern!(
             "docker-exec",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+exec(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+exec(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // docker stats is safe
         safe_pattern!(
             "docker-stats",
-            r"docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+stats(?=\s|$)"
+            r"^\s*docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+stats(?=\s|$)(?:\s+[^;&|`$()]*)*$"
         ),
         // Dry-run flags
-        safe_pattern!("docker-dry-run", r"docker\s+.*--dry-run"),
+        safe_pattern!(
+            "docker-dry-run",
+            r"^\s*docker\b(?:\s+[^;&|`$()]*)*--dry-run(?:\s+[^;&|`$()]*)*$"
+        ),
     ]
 }
 
@@ -373,10 +382,13 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
              tar czf /backup/volume-backup.tar.gz /data",
             VOLUME_RM_SUGGESTIONS
         ),
-        // stop/kill all containers pattern
+        // stop/kill all containers pattern: match `docker stop/kill` with a
+        // `$(...)` subshell that dynamically selects targets. The regex uses
+        // `\$\(` (not `\$\(docker\s+ps`) so context sanitization (which masks
+        // subshell contents into `$()`) doesn't break the match.
         destructive_pattern!(
             "stop-all",
-            r"docker\b.*?\b(?:stop|kill)\s+\$\(docker\s+ps",
+            r"docker\b.*?\b(?:stop|kill)\s+\$\(",
             "Stopping/killing all containers can disrupt services. Be specific about which containers.",
             High,
             "This pattern stops or kills ALL running containers on the system. \
@@ -503,6 +515,30 @@ mod tests {
         assert_allows(&pack, "docker ps");
         assert_allows(&pack, "docker logs mycontainer");
         assert_allows(&pack, "docker build -t app .");
+    }
+
+    #[test]
+    fn nested_docker_ps_command_substitution_does_not_short_circuit() {
+        let pack = create_pack();
+
+        assert!(
+            !pack.matches_safe("docker stop $(docker ps -q)"),
+            "inner `docker ps` must not satisfy the top-level safe whitelist"
+        );
+        let matched = pack
+            .check("docker stop $(docker ps -q)")
+            .expect("stopping every running container must block");
+        assert_eq!(matched.name, Some("stop-all"));
+
+        let matched = pack
+            .check("docker stop $()")
+            .expect("sanitized command substitution must still block");
+        assert_eq!(matched.name, Some("stop-all"));
+
+        let matched = pack
+            .check("docker kill $(docker ps -aq)")
+            .expect("killing every container from docker ps must block");
+        assert_eq!(matched.name, Some("stop-all"));
     }
 
     #[test]
