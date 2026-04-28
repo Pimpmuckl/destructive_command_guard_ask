@@ -11,9 +11,10 @@
 //! Part of git_safety_guard-x1l7: [E3-T9] Comprehensive testing for Command Rewriting Suggestions
 
 use destructive_command_guard::suggest::{
-    AllowlistSuggestion, CommandCluster, ConfidenceTier, PathPattern, RiskLevel, SuggestionReason,
-    analyze_path_patterns, assess_risk_level, calculate_confidence_tier,
-    calculate_suggestion_score, determine_primary_reason,
+    AllowlistSuggestion, CommandCluster, CommandEntryInfo, ConfidenceTier, PathPattern, RiskLevel,
+    SuggestionReason, SuggestionSafetyDecision, analyze_path_patterns, assess_risk_level,
+    calculate_confidence_tier, calculate_suggestion_score, check_suggestion_safety,
+    determine_primary_reason, filter_suggestions_for_safety, generate_enhanced_suggestions,
 };
 
 // ============================================================================
@@ -389,6 +390,109 @@ fn suggestion_score_always_in_valid_range() {
 }
 
 // ============================================================================
+// Suggestion Safety Filtering Tests
+// ============================================================================
+
+#[test]
+fn suggestion_safety_never_suggests_critical_destructive_patterns() {
+    let cases = [
+        (r"^rm\s+-rf\s+/$", "recursive removal"),
+        (r"^DROP\s+DATABASE\s+prod$", "database"),
+        ("dd if=/dev/zero of=/dev/sda", "raw disk"),
+        ("mkfs.ext4 /dev/sda1", "filesystem"),
+        (r"^git\s+reset\s+--hard\s+HEAD$", "high-risk"),
+    ];
+
+    for (pattern, expected_reason_fragment) in cases {
+        let decision = check_suggestion_safety(pattern, RiskLevel::High);
+
+        match decision {
+            SuggestionSafetyDecision::NeverSuggest { reason } => assert!(
+                reason.contains(expected_reason_fragment),
+                "expected reason for `{pattern}` to mention `{expected_reason_fragment}`, got `{reason}`"
+            ),
+            other => panic!("expected `{pattern}` to be never-suggest, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn safety_filter_removes_never_suggest_entries_and_keeps_benign_suggestions() {
+    let dangerous = AllowlistSuggestion::from_cluster(CommandCluster {
+        commands: vec!["rm -rf /".to_string()],
+        normalized: vec!["rm -rf /".to_string()],
+        proposed_pattern: r"^rm\s+-rf\s+/$".to_string(),
+        frequency: 100,
+        unique_count: 1,
+    });
+    let benign = AllowlistSuggestion::from_cluster(CommandCluster {
+        commands: vec!["npm run build:docs".to_string()],
+        normalized: vec!["npm run build:docs".to_string()],
+        proposed_pattern: r"^npm\s+run\s+build:docs$".to_string(),
+        frequency: 5,
+        unique_count: 1,
+    });
+
+    let result = filter_suggestions_for_safety(vec![dangerous, benign]);
+
+    assert_eq!(result.suggestions.len(), 1);
+    assert_eq!(result.filtered.len(), 1);
+    assert_eq!(
+        result.suggestions[0].cluster.commands,
+        vec!["npm run build:docs".to_string()]
+    );
+    assert_eq!(
+        result.suggestions[0].safety,
+        SuggestionSafetyDecision::Allow
+    );
+    assert_eq!(result.filtered[0].pattern, r"^rm\s+-rf\s+/$");
+    assert!(
+        result.filtered[0]
+            .safety
+            .reason()
+            .is_some_and(|reason| reason.contains("recursive removal")),
+        "filtered dangerous suggestion should retain a useful reason: {:?}",
+        result.filtered[0].safety
+    );
+}
+
+#[test]
+fn enhanced_suggestions_filter_dangerous_history_even_when_frequent() {
+    let mut entries: Vec<CommandEntryInfo> = (0..20)
+        .map(|_| CommandEntryInfo {
+            command: "rm -rf /".to_string(),
+            working_dir: "/data/projects/app".to_string(),
+            was_bypassed: true,
+        })
+        .collect();
+
+    entries.extend((0..4).map(|_| CommandEntryInfo {
+        command: "npm run build:docs".to_string(),
+        working_dir: "/data/projects/app".to_string(),
+        was_bypassed: false,
+    }));
+
+    let suggestions = generate_enhanced_suggestions(&entries, 3);
+
+    assert!(
+        suggestions.iter().any(|suggestion| suggestion
+            .cluster
+            .commands
+            .iter()
+            .any(|command| command == "npm run build:docs")),
+        "benign frequent command should still be suggested: {suggestions:?}"
+    );
+    assert!(
+        suggestions.iter().all(|suggestion| suggestion
+            .cluster
+            .commands
+            .iter()
+            .all(|command| !command.contains("rm -rf /"))),
+        "critical destructive commands must not survive safety filtering: {suggestions:?}"
+    );
+}
+
+// ============================================================================
 // determine_primary_reason Tests
 // ============================================================================
 
@@ -583,7 +687,14 @@ fn allowlist_suggestion_from_cluster_basic() {
     assert_eq!(suggestion.confidence, ConfidenceTier::High);
     // git reset --hard is high risk
     assert_eq!(suggestion.risk, RiskLevel::High);
-    assert!(suggestion.score > 0.0);
+    assert!(
+        matches!(
+            suggestion.safety,
+            SuggestionSafetyDecision::NeverSuggest { .. }
+        ),
+        "git reset --hard should require safety filtering"
+    );
+    assert!(suggestion.score.abs() < f32::EPSILON);
 }
 
 #[test]
@@ -735,8 +846,15 @@ fn full_suggestion_flow_high_frequency_clustered() {
     assert!(suggestion.suggest_path_specific);
     // Should have ManuallyBypassed as reason due to bypasses
     assert_eq!(suggestion.reason, SuggestionReason::ManuallyBypassed);
-    // Score should be reasonable despite high risk
-    assert!(suggestion.score > 0.5);
+    // Critical destructive suggestions are classified but scored out.
+    assert!(
+        matches!(
+            suggestion.safety,
+            SuggestionSafetyDecision::NeverSuggest { .. }
+        ),
+        "git reset --hard should require safety filtering"
+    );
+    assert!(suggestion.score.abs() < f32::EPSILON);
 }
 
 #[test]
