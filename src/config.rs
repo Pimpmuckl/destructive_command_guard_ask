@@ -3063,6 +3063,71 @@ impl Config {
         }
 
         // -----------------------------------------------------------------
+        // Interactive config (env overrides)
+        // -----------------------------------------------------------------
+
+        // DCG_INTERACTIVE_ENABLED=true|false|1|0
+        if let Some(enabled) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_ENABLED")) {
+            if let Some(parsed) = parse_env_bool(&enabled) {
+                self.interactive.enabled = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_VERIFICATION=code|command|none
+        if let Some(verification) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_VERIFICATION")) {
+            if let Some(parsed) = parse_interactive_verification_method(&verification) {
+                self.interactive.verification = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_TIMEOUT_SECONDS=5
+        if let Some(timeout_seconds) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_TIMEOUT_SECONDS"))
+        {
+            if let Ok(parsed) = timeout_seconds.trim().parse::<u64>() {
+                self.interactive.timeout_seconds = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_CODE_LENGTH=4
+        if let Some(code_length) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_CODE_LENGTH")) {
+            if let Ok(parsed) = code_length.trim().parse::<usize>() {
+                self.interactive.code_length = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_MAX_ATTEMPTS=3
+        if let Some(max_attempts) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_MAX_ATTEMPTS")) {
+            if let Ok(parsed) = max_attempts.trim().parse::<u32>() {
+                self.interactive.max_attempts = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_ALLOW_NON_TTY_FALLBACK=true|false|1|0
+        if let Some(fallback) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_ALLOW_NON_TTY_FALLBACK"))
+        {
+            if let Some(parsed) = parse_env_bool(&fallback) {
+                self.interactive.allow_non_tty_fallback = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_DISABLE_IN_CI=true|false|1|0
+        if let Some(disable_in_ci) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_DISABLE_IN_CI")) {
+            if let Some(parsed) = parse_env_bool(&disable_in_ci) {
+                self.interactive.disable_in_ci = parsed;
+            }
+        }
+
+        // DCG_INTERACTIVE_REQUIRE_ENV=DCG_INTERACTIVE
+        if let Some(require_env) = get_env(&format!("{ENV_PREFIX}_INTERACTIVE_REQUIRE_ENV")) {
+            let trimmed = require_env.trim();
+            self.interactive.require_env = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+        }
+
+        // -----------------------------------------------------------------
         // Git awareness config (env overrides)
         // -----------------------------------------------------------------
 
@@ -3464,6 +3529,29 @@ custom_paths = [
 # Safety: Critical rules are only loosened via explicit per-rule overrides.
 
 #─────────────────────────────────────────────────────────────
+# INTERACTIVE MODE
+#─────────────────────────────────────────────────────────────
+
+[interactive]
+# Master switch for terminal prompts. Disabled by default for agent safety.
+enabled = false
+
+# Verification method: "code" | "command" | "none".
+verification = "code"
+
+# Prompt timeout and code length. Values are clamped at runtime.
+timeout_seconds = 5
+code_length = 4
+max_attempts = 3
+
+# Keep prompts disabled for non-TTY agent traffic and CI by default.
+allow_non_tty_fallback = true
+disable_in_ci = true
+
+# Optional env var gate; uncomment to require explicit opt-in per shell.
+# require_env = "DCG_INTERACTIVE"
+
+#─────────────────────────────────────────────────────────────
 # GIT BRANCH AWARENESS
 #─────────────────────────────────────────────────────────────
 
@@ -3600,6 +3688,15 @@ fn parse_policy_mode(value: &str) -> Option<PolicyMode> {
         "deny" | "block" => Some(PolicyMode::Deny),
         "warn" | "warning" => Some(PolicyMode::Warn),
         "log" | "log-only" | "logonly" => Some(PolicyMode::Log),
+        _ => None,
+    }
+}
+
+fn parse_interactive_verification_method(value: &str) -> Option<VerificationMethod> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "code" => Some(VerificationMethod::Code),
+        "command" => Some(VerificationMethod::Command),
+        "none" => Some(VerificationMethod::None),
         _ => None,
     }
 }
@@ -3779,6 +3876,7 @@ auto_prune_expired = true
     #[test]
     fn test_sample_config_parses() {
         let sample = Config::generate_sample_config();
+        assert!(sample.contains("[interactive]"));
         assert!(sample.contains("[git_awareness]"));
         toml::from_str::<Config>(&sample).expect("sample config parses");
     }
@@ -4482,6 +4580,34 @@ allow = false
     }
 
     #[test]
+    fn test_interactive_config_from_toml() {
+        let input = r#"
+[interactive]
+enabled = true
+verification = "command"
+timeout_seconds = 12
+code_length = 6
+max_attempts = 7
+allow_non_tty_fallback = false
+disable_in_ci = false
+require_env = "DCG_INTERACTIVE"
+"#;
+        let config: Config = toml::from_str(input).expect("config parses");
+
+        assert!(config.interactive.enabled);
+        assert_eq!(config.interactive.verification, VerificationMethod::Command);
+        assert_eq!(config.interactive.timeout_seconds, 12);
+        assert_eq!(config.interactive.code_length, 6);
+        assert_eq!(config.interactive.max_attempts, 7);
+        assert!(!config.interactive.allow_non_tty_fallback);
+        assert!(!config.interactive.disable_in_ci);
+        assert_eq!(
+            config.interactive.require_env.as_deref(),
+            Some("DCG_INTERACTIVE")
+        );
+    }
+
+    #[test]
     fn test_config_merge_layer_interactive_overrides_fields() {
         let mut config = Config::default();
         let layer: ConfigLayer = toml::from_str(
@@ -4544,6 +4670,46 @@ enabled = false
         assert!(!config.interactive.allow_non_tty_fallback);
         assert!(!config.interactive.disable_in_ci);
         assert_eq!(config.interactive.require_env.as_deref(), Some("KEEP_ME"));
+    }
+
+    #[test]
+    fn test_interactive_env_overrides() {
+        let env_map: std::collections::HashMap<&str, &str> = std::collections::HashMap::from([
+            ("DCG_INTERACTIVE_ENABLED", "true"),
+            ("DCG_INTERACTIVE_VERIFICATION", "none"),
+            ("DCG_INTERACTIVE_TIMEOUT_SECONDS", "11"),
+            ("DCG_INTERACTIVE_CODE_LENGTH", "6"),
+            ("DCG_INTERACTIVE_MAX_ATTEMPTS", "8"),
+            ("DCG_INTERACTIVE_ALLOW_NON_TTY_FALLBACK", "false"),
+            ("DCG_INTERACTIVE_DISABLE_IN_CI", "false"),
+            ("DCG_INTERACTIVE_REQUIRE_ENV", "DCG_INTERACTIVE"),
+        ]);
+        let mut config = Config::default();
+        config.apply_env_overrides_from(|key| env_map.get(key).map(|v| (*v).to_string()));
+
+        assert!(config.interactive.enabled);
+        assert_eq!(config.interactive.verification, VerificationMethod::None);
+        assert_eq!(config.interactive.timeout_seconds, 11);
+        assert_eq!(config.interactive.code_length, 6);
+        assert_eq!(config.interactive.max_attempts, 8);
+        assert!(!config.interactive.allow_non_tty_fallback);
+        assert!(!config.interactive.disable_in_ci);
+        assert_eq!(
+            config.interactive.require_env.as_deref(),
+            Some("DCG_INTERACTIVE")
+        );
+    }
+
+    #[test]
+    fn test_interactive_env_empty_require_env_clears_requirement() {
+        let env_map: std::collections::HashMap<&str, &str> =
+            std::collections::HashMap::from([("DCG_INTERACTIVE_REQUIRE_ENV", "   ")]);
+        let mut config = Config::default();
+        config.interactive.require_env = Some("KEEP_ME".to_string());
+
+        config.apply_env_overrides_from(|key| env_map.get(key).map(|v| (*v).to_string()));
+
+        assert!(config.interactive.require_env.is_none());
     }
 
     #[test]
