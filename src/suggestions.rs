@@ -494,7 +494,14 @@ fn register_core_filesystem_suggestions(m: &mut HashMap<&'static str, Vec<Sugges
     // shred-* (overwrite + optional unlink): same single-file destruction
     // shape. Reuse the rm_rf suggestion set.
     m.insert("core.filesystem:shred-root-home", rm_rf_suggestions.clone());
-    m.insert("core.filesystem:shred-general", rm_rf_suggestions);
+    m.insert("core.filesystem:shred-general", rm_rf_suggestions.clone());
+    // tar-remove-files-* (archive-then-delete on sources): recursive-
+    // delete sibling. Reuse rm_rf suggestion set.
+    m.insert(
+        "core.filesystem:tar-remove-files-root-home",
+        rm_rf_suggestions.clone(),
+    );
+    m.insert("core.filesystem:tar-remove-files-general", rm_rf_suggestions);
 }
 
 /// Register suggestions for heredoc pattern rules.
@@ -1574,6 +1581,8 @@ mod tests {
             "core.filesystem:truncate-zero-general",
             "core.filesystem:shred-root-home",
             "core.filesystem:shred-general",
+            "core.filesystem:tar-remove-files-root-home",
+            "core.filesystem:tar-remove-files-general",
         ];
 
         for rule in expected_rules {
