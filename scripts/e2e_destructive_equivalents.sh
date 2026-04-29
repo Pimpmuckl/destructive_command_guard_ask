@@ -788,10 +788,12 @@ scenario_system_disk_default() {
     assert_allowed 'fdisk -l'
 
     # Bypass-var contract: falsy values must NOT bypass; truthy values
-    # MUST bypass. (system.disk rules are currently High severity, so
-    # DCG_BYPASS=1 does relax them — same contract as the rest of the
-    # core packs. The "Critical-tier" parenthetical in the bead title
-    # was aspirational; severity-bump is tracked separately in 8kh4.)
+    # MUST bypass. system.disk rules are currently High severity in the
+    # pack, so DCG_BYPASS=1 does relax them — this matches the contract
+    # used by the rest of the core packs. (The "are critical-tier"
+    # parenthetical in nqhi.8's title was aspirational; promoting these
+    # to Critical severity is a separate scope question outside
+    # default-enablement and is not tracked by any bead yet.)
     assert_blocked_under_falsy_bypass  'mkfs.ext4 /dev/sda1'              'system.disk:mkfs'
     assert_blocked_under_falsy_bypass  'dd if=/dev/zero of=/dev/sda bs=1M' 'system.disk:dd-device'
     assert_allowed_under_truthy_bypass 'mkfs.ext4 /dev/sda1'
