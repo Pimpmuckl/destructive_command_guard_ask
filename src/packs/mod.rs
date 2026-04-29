@@ -2226,26 +2226,21 @@ fn span_matches_any_keyword(span_text: &str, enabled_keywords: &[&str]) -> bool 
 }
 
 #[inline]
-fn should_fallback_to_full_normalized_keyword_scan(original: &str, normalized: &str) -> bool {
-    // Two cases trigger the fallback to a full-command keyword scan
-    // instead of the span-aware (executable-span-only) check:
+fn should_fallback_to_full_normalized_keyword_scan(normalized: &str) -> bool {
+    // The fallback bypasses the span-aware (executable-span-only) check
+    // and runs the keyword scan against the full normalized command.
+    // It must fire whenever the command IS or CONTAINS a Bash output
+    // redirect (`>`, `>|`, `&>`, `1>`, `2>`) because keywords like
+    // `> /` (used by `redirect-truncate-root-home`) live OUTSIDE the
+    // executable span — span-only matching misses them and the
+    // destructive rule never gets a chance to fire. This also covers
+    // the older path-prefix-normalization case (`/usr/bin/cat>file` →
+    // `cat>file`) where the redirect stays glued to the command word.
     //
-    //   1. Path-prefixed binary normalisation glued a redirect to the
-    //      command word (e.g. `/usr/bin/cat>file` → `cat>file`); the
-    //      executable span doesn't include the keyword. (Existing case.)
-    //
-    //   2. The command IS or CONTAINS a Bash output redirect
-    //      (`>`, `>|`, `&>`, `1>`, `2>`). Even with no normalization,
-    //      keywords like `> /` (used by `redirect-truncate-root-home`)
-    //      live OUTSIDE the executable span — so span-only matching
-    //      misses them and the destructive rule never gets a chance to
-    //      fire. The append form `>>` is also caught here but the
-    //      destructive regex's negative lookbehind correctly rejects it.
-    //
-    // Read redirects (`<`) trigger the fallback for symmetry; no current
-    // pattern uses them but cost is negligible and future read-side
-    // rules become easier to add.
-    let _ = original;
+    // Append (`>>`) and read redirects (`<`) trigger the fallback too;
+    // the destructive regex's own negative lookbehind correctly rejects
+    // append, and no rule currently keys on read redirects (cost is one
+    // extra AC pass that returns no matches — negligible).
     normalized.bytes().any(|byte| matches!(byte, b'>' | b'<'))
 }
 
@@ -2433,7 +2428,7 @@ pub fn pack_aware_quick_reject_with_normalized<'a>(
     }
 
     if !saw_executable {
-        if should_fallback_to_full_normalized_keyword_scan(cmd, cmd_for_spans)
+        if should_fallback_to_full_normalized_keyword_scan(cmd_for_spans)
             && span_matches_any_keyword(cmd_for_spans, enabled_keywords)
         {
             return (false, normalized);
@@ -2441,12 +2436,16 @@ pub fn pack_aware_quick_reject_with_normalized<'a>(
         return (true, normalized);
     }
 
-    // Attached shell redirections can stay glued to the command word after
-    // normalization, which is enough to defeat the executable-span keyword
-    // gate. Fall back to the normalized full command only for that narrow
-    // class of shell-syntax rewrites; broader fallbacks create false positives
-    // on safe variable/data contexts.
-    if should_fallback_to_full_normalized_keyword_scan(cmd, cmd_for_spans)
+    // Bash output redirects keep their target outside the executable
+    // span, so the span-only keyword gate misses keywords like `> /`
+    // (used by redirect-truncate-root-home). The fallback re-scans the
+    // full normalized command for any enabled keyword. Path-prefix
+    // normalization that glues a redirect to the command word
+    // (`/usr/bin/cat>file` → `cat>file`) is also covered. False
+    // positives on benign data are unlikely because the AC scan still
+    // requires a real keyword match — the fallback only widens *which
+    // string* gets scanned, not what counts as a match.
+    if should_fallback_to_full_normalized_keyword_scan(cmd_for_spans)
         && span_matches_any_keyword(cmd_for_spans, enabled_keywords)
     {
         return (false, normalized);

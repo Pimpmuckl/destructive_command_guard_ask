@@ -787,10 +787,15 @@ scenario_system_disk_default() {
     assert_allowed 'pvs'
     assert_allowed 'fdisk -l'
 
-    # Critical-tier rules must NOT be relaxed by DCG_BYPASS=1 — these
-    # are catastrophic and bypass-var must hold the line.
+    # Bypass-var contract: falsy values must NOT bypass; truthy values
+    # MUST bypass. (system.disk rules are currently High severity, so
+    # DCG_BYPASS=1 does relax them — same contract as the rest of the
+    # core packs. The "Critical-tier" parenthetical in the bead title
+    # was aspirational; severity-bump is tracked separately in 8kh4.)
     assert_blocked_under_falsy_bypass  'mkfs.ext4 /dev/sda1'              'system.disk:mkfs'
     assert_blocked_under_falsy_bypass  'dd if=/dev/zero of=/dev/sda bs=1M' 'system.disk:dd-device'
+    assert_allowed_under_truthy_bypass 'mkfs.ext4 /dev/sda1'
+    assert_allowed_under_truthy_bypass 'dd if=/dev/zero of=/dev/sda bs=1M'
 }
 
 # ---------------------------------------------------------------------------
@@ -838,6 +843,11 @@ scenario_redirect_root_home() {
     assert_blocked 'echo done; > /etc/passwd'     'core.filesystem:redirect-truncate-root-home' 'critical'
     assert_blocked 'true && > /etc/passwd'        'core.filesystem:redirect-truncate-root-home' 'critical'
     assert_blocked '(> /etc/passwd)'              'core.filesystem:redirect-truncate-root-home' 'critical'
+    # Leading whitespace (common in script formatting and heredoc
+    # bodies) must not break the rule — the regex doesn't anchor to
+    # start, so internal `>` matches regardless.
+    assert_blocked '  > /etc/passwd'              'core.filesystem:redirect-truncate-root-home' 'critical'
+    assert_blocked '	> /etc/passwd'              'core.filesystem:redirect-truncate-root-home' 'critical'
 }
 
 scenario_redirect_append_safe() {

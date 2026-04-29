@@ -2725,6 +2725,9 @@ mod tests {
             "(> /etc/passwd)",
             // Wrappers.
             "sudo bash -c '> /etc/passwd'",
+            // Leading whitespace (script formatting / heredoc bodies).
+            "  > /etc/passwd",
+            "\t> /etc/passwd",
         ] {
             assert_blocks_with_severity(&pack, cmd, Severity::Critical);
             assert_blocks_with_pattern(&pack, cmd, "redirect-truncate-root-home");

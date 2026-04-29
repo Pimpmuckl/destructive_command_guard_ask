@@ -1721,29 +1721,43 @@ enum SanitizeTokenKind {
     Comment,
 }
 
-/// Returns true if `token` is a Bash output redirection operator that
-/// belongs to shell-syntax processing (not the command's argument
-/// stream). Used by `sanitize_for_pattern_matching` to stop masking
-/// past `echo > <path>` etc., where the path is the shell's redirect
-/// target rather than echo's data argument.
+/// Returns true if `token` is a Bash redirection operator that belongs
+/// to shell-syntax processing (not the command's argument stream).
+/// Used by `sanitize_for_pattern_matching` to stop masking past
+/// `echo > <path>` etc., where the path is the shell's redirect target
+/// rather than echo's data argument.
+///
+/// Covers:
+/// - Output: `>`, `>>` (append), `>|` (force overwrite ignoring noclobber)
+/// - Combined: `&>` (stdout+stderr), `&>>` (stdout+stderr append)
+/// - Read-write: `<>` (open file for both)
+/// - FD-to-FD: `>&`, `<&`
+/// - Numbered FDs (0-9) for output: `N>`, `N>>`, `N>|`, `N>&`
+/// - Numbered FDs (0-9) for read-write / FD duplication: `N<>`, `N<&`
+///
+/// Excludes input-only operators (`<`, `<<`, `<<<`) — those don't
+/// truncate a target and don't affect the destructive-rule blast
+/// radius, so masking past them is fine.
 #[inline]
 fn is_shell_redirect_operator(token: &str) -> bool {
-    matches!(
-        token,
-        ">" | ">>"
-            | ">|"
-            | "&>"
-            | "&>>"
-            | ">&"
-            | "1>"
-            | "2>"
-            | "1>>"
-            | "2>>"
-            | "1>|"
-            | "2>|"
-            | "1>&"
-            | "2>&"
-    )
+    let bytes = token.as_bytes();
+    match bytes {
+        // Untyped operators (no leading FD).
+        b">" | b">>" | b">|" | b"&>" | b"&>>" | b">&" | b"<>" | b"<&" => true,
+        // Numbered FD: `N>`, `N>>`, `N>|`, `N>&`, `N<>`, `N<&` for any
+        // single ASCII digit (0-9). Bash actually allows multi-digit
+        // FDs (`{var}>`, `10>`) but those are extremely rare and
+        // tokenize differently; the single-digit cases cover the
+        // common idiom (`1>`, `2>`, occasionally `3>`/`9>` for
+        // higher-FD scripting).
+        [d, b'>'] if d.is_ascii_digit() => true,
+        [d, b'>', b'>'] if d.is_ascii_digit() => true,
+        [d, b'>', b'|'] if d.is_ascii_digit() => true,
+        [d, b'>', b'&'] if d.is_ascii_digit() => true,
+        [d, b'<', b'>'] if d.is_ascii_digit() => true,
+        [d, b'<', b'&'] if d.is_ascii_digit() => true,
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3321,5 +3335,65 @@ mod tests {
             .find(|s| s.text(cmd).contains("rm -rf"));
         assert!(label_span.is_some());
         assert_eq!(label_span.unwrap().kind, SpanKind::Argument);
+    }
+
+    #[test]
+    fn shell_redirect_operator_recognises_all_common_forms() {
+        // Untyped output redirects.
+        for op in [">", ">>", ">|", "&>", "&>>", ">&"] {
+            assert!(
+                super::is_shell_redirect_operator(op),
+                "expected `{op}` to be a recognised redirect operator"
+            );
+        }
+        // Read-write and FD-to-FD untyped.
+        for op in ["<>", "<&"] {
+            assert!(
+                super::is_shell_redirect_operator(op),
+                "expected `{op}` to be a recognised redirect operator"
+            );
+        }
+        // Numbered FDs (0-9) for output / FD-to-FD / read-write.
+        for digit in b'0'..=b'9' {
+            for suffix in [">", ">>", ">|", ">&", "<>", "<&"] {
+                let op = format!("{}{}", digit as char, suffix);
+                assert!(
+                    super::is_shell_redirect_operator(&op),
+                    "expected `{op}` (FD-{}) to be a recognised redirect operator",
+                    digit as char
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shell_redirect_operator_rejects_non_redirects() {
+        // Non-redirect tokens that share a byte with redirect operators
+        // must NOT be classified as redirects, otherwise the sanitize
+        // path would incorrectly drop out of args-data mode on benign
+        // tokens like `>file` (combined operator+target — different
+        // shape, different handling).
+        for non_op in [
+            "",
+            ">file",
+            ">>file",
+            "1>file",
+            "echo",
+            "/etc/passwd",
+            ">/etc",
+            "<", // input-only, intentionally NOT in the list
+            "<<",
+            "<<<", // here-doc / here-string
+            ">>>", // not valid bash
+            "10>", // multi-digit FD — out of scope for the single-digit matcher
+            "&",
+            "|",
+            ";",
+        ] {
+            assert!(
+                !super::is_shell_redirect_operator(non_op),
+                "did not expect `{non_op}` to be classified as a redirect operator"
+            );
+        }
     }
 }
