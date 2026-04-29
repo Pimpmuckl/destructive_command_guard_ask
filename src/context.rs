@@ -1048,6 +1048,12 @@ pub fn sanitize_for_pattern_matching(command: &str) -> Cow<'_, str> {
     let mut git_subcommand: Option<&str> = None;
     let mut git_waiting_for_value = false;
     let mut git_options_ended = false;
+    // For args-data commands (echo/printf): set when we just consumed a
+    // shell redirect operator and the next token is its target. The
+    // target is left visible (not masked) so destructive-redirect rules
+    // can see it; the flag clears after one token so subsequent argv
+    // returns to args-data masking.
+    let mut next_token_is_redirect_target = false;
 
     for (i, token) in tokens.iter().enumerate() {
         if token.kind == SanitizeTokenKind::Separator {
@@ -1062,6 +1068,7 @@ pub fn sanitize_for_pattern_matching(command: &str) -> Cow<'_, str> {
             git_subcommand = None;
             git_waiting_for_value = false;
             git_options_ended = false;
+            next_token_is_redirect_target = false;
             continue;
         }
 
@@ -1177,17 +1184,26 @@ pub fn sanitize_for_pattern_matching(command: &str) -> Cow<'_, str> {
             // For commands like echo/printf, treat all args as data, but never strip inline code.
             //
             // Exception: shell redirect operators (`>`, `>>`, `>|`, `&>`,
-            // `1>`, `2>`, etc.) end the command's argument scope at the
-            // shell-syntax layer — bash processes them BEFORE echo runs,
-            // so they're not echo's data. Masking past them hides the
-            // redirect target (e.g. `/etc/passwd` in `echo > /etc/passwd`)
-            // from rules that key on it (notably
-            // `core.filesystem:redirect-truncate-root-home`). Drop out of
-            // all-args-data mode and leave both the operator and the
-            // remaining tokens visible so subsequent passes can see the
-            // unredacted command.
+            // `1>`, `2>`, etc.) end the data scope at the shell-syntax
+            // layer — bash processes redirects BEFORE echo runs, so
+            // the redirect target is NOT echo's data. Masking past it
+            // would hide the destructive target (e.g. `/etc/passwd` in
+            // `echo > /etc/passwd`) from
+            // `core.filesystem:redirect-truncate-root-home`.
+            //
+            // We expose only the redirect operator itself AND the very
+            // next token (the target), then resume args-data masking.
+            // This narrow window prevents a regression where a command
+            // like `echo "x" > /var/log/app.log "rm -rf /"` would expose
+            // the trailing string-literal `"rm -rf /"` to the
+            // `rm-rf-root-home` rule and falsely block.
             if is_shell_redirect_operator(token_text) {
-                segment_cmd_is_all_args_data = false;
+                next_token_is_redirect_target = true;
+                continue;
+            }
+            if next_token_is_redirect_target {
+                // Visible — let destructive-redirect rules see this path.
+                next_token_is_redirect_target = false;
                 continue;
             }
             if !token.has_inline_code {
