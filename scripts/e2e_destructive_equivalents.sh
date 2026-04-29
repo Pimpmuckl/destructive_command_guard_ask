@@ -668,9 +668,81 @@ scenario_dd_bypass_var() {
 }
 
 # ---------------------------------------------------------------------------
+# mv (cross-segment bypass) (git_safety_guard-nqhi.7)
+# ---------------------------------------------------------------------------
+scenario_mv_sensitive_root_home() {
+    # Canonical cross-segment bypass shape (only the mv portion is asserted).
+    assert_blocked 'mv /etc /tmp/x'                                  'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /etc/passwd /tmp/passwd-deleted'              'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /home/user /tmp/relocated'                    'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv $HOME /tmp/x'                                 'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv ${HOME} /tmp/x'                               'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv ~/.ssh /tmp/keys'                             'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /usr/local /tmp/x'                            'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /var/log /tmp/log-relocated'                  'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # /dev/null silent destruction.
+    assert_blocked 'mv /etc /dev/null'                               'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /home/user /dev/null'                         'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # Destination is sensitive (writing INTO /etc).
+    assert_blocked 'mv ./build/foo /etc/local-config.bak'            'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # In-place rename within /etc — bead's v1 decision: BLOCK.
+    assert_blocked 'mv /etc/hosts /etc/hosts.bak'                    'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv /etc/passwd /etc/passwd.old'                  'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # With flags.
+    assert_blocked 'mv -v /etc /tmp/x'                               'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv -f /etc /tmp/x'                               'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv -t /tmp/x /etc'                               'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'mv --backup=numbered /etc /tmp/x'                'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # Quoted paths.
+    assert_blocked 'mv "/etc" /tmp/x'                                'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked "mv '/etc' /tmp/x"                                'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # Compound forms.
+    assert_blocked 'echo done; mv /etc /tmp/x'                       'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'true && mv /etc /tmp/x'                          'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked '(mv /etc /tmp/x)'                                'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # Wrappers.
+    assert_blocked 'sudo mv /etc /tmp/x'                             'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked 'env FOO=bar mv /etc /tmp/x'                      'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    # Path-prefixed (PATH_NORMALIZER).
+    assert_blocked '/usr/bin/mv /etc /tmp/x'                         'core.filesystem:mv-sensitive-source-root-home' 'critical'
+    assert_blocked '/bin/mv /etc /tmp/x'                             'core.filesystem:mv-sensitive-source-root-home' 'critical'
+}
+
+scenario_mv_no_false_positive() {
+    # No sensitive path in source OR dest → destructive rule doesn't fire.
+    assert_allowed 'mv ./old.txt ./new.txt'
+    assert_allowed 'mv build/output.bin dist/'
+    assert_allowed 'mv foo.log foo.log.1'
+    assert_allowed 'mv ./src/a.rs ./src/b.rs'
+    # Tmp-family moves (rescued by the explicit safe patterns; /var/tmp
+    # is the load-bearing case because /var is sensitive).
+    assert_allowed 'mv /tmp/foo /tmp/bar'
+    assert_allowed 'mv /tmp/foo /tmp/sub/bar'
+    assert_allowed 'mv -v /tmp/foo /tmp/bar'
+    assert_allowed 'mv /var/tmp/foo /var/tmp/bar'
+    assert_allowed 'mv $TMPDIR/foo $TMPDIR/bar'
+    assert_allowed 'mv ${TMPDIR}/foo ${TMPDIR}/bar'
+    # --help / --version.
+    assert_allowed 'mv --help'
+    assert_allowed 'mv --version'
+    # Substring traps (mv is 2 chars; \bmv\b must reject these).
+    assert_allowed 'cat mv-script.sh'
+    assert_allowed 'ls mv-readme.md'
+    assert_allowed 'echo mv'
+    # No mv invocation at all.
+    assert_allowed 'ls /etc'
+    assert_allowed 'cat /etc/passwd'
+}
+
+scenario_mv_sensitive_bypass_var() {
+    assert_blocked_under_falsy_bypass  'mv /etc /tmp/x'              'core.filesystem:mv-sensitive-source-root-home'
+    assert_blocked_under_falsy_bypass  'mv /etc /dev/null'           'core.filesystem:mv-sensitive-source-root-home'
+    assert_allowed_under_truthy_bypass 'mv /etc /tmp/x'
+}
+
+# ---------------------------------------------------------------------------
 # (placeholders — implementers replace with concrete assertions)
 # scenario_redirect_*() { :; }
-# scenario_mv_sensitive_*() { :; }
 # scenario_system_disk_default() { :; }
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@
         "keywords_checked": [
           "/dd",
           "/find",
+          "/mv",
           "/rm",
           "/shred",
           "/tar",
@@ -21,6 +22,7 @@
           "dd",
           "find",
           "git",
+          "mv",
           "rm",
           "shred",
           "tar",

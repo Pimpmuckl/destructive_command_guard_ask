@@ -15,13 +15,14 @@ Post-v0.4.3 work on `main` that has not yet been tagged.
 
 ### Security Hardening
 
-- **Recursive-force-delete bypass family** (`core.filesystem`): closed six sibling-bypass families an agent could use after `rm -rf` is blocked.
+- **Recursive-force-delete bypass family** (`core.filesystem`): closed seven sibling-bypass families an agent could use after `rm -rf` is blocked.
   - `find ... -delete` on sensitive paths (Critical/High) — closes the `find -delete` path-bypass plus compound, subshell, and path-prefix variants.
   - `unlink <sensitive>` (Critical/High) — POSIX unlink(2) primitive.
   - `truncate -s 0|--size=0|-s -N` on sensitive paths (Critical/High) — in-place zero/shrink.
   - `shred [-u|--remove|-fzu] <sensitive>` (Critical/High) — DoD-style overwrite + optional unlink.
   - `tar --remove-files` on sensitive sources (Critical/High) — archive-then-delete masquerading as an archive operation; order-agnostic flag/source placement; `tar --remove-files -cf /dev/null /etc` (delete-only) blocked.
   - `dd of=<sensitive>` (Critical/High) — file-level overwrite (truncate-equivalent at the dd layer); operand-order agnostic; `dd of=/dev/null` (read-discard) and `dd if=/etc/passwd of=/tmp/passwd.bak` (backup) preserved; device-level dd (`of=/dev/sda`) is `system.disk`'s scope.
+  - `mv <sensitive>` (Critical) — closes the canonical cross-segment bypass `mv /etc /tmp/x && rm -rf /tmp/x` where each segment is allowed individually but together destroys `/etc`. Blocks any mv that mentions a sensitive path (source OR destination) including in-place renames within /etc; tmp-family moves remain allowed. The more general data-flow analyzer (covering `cp -al`, `ln -s`, etc.) is tracked as a follow-up epic.
 - **Strict git pack**: expanded dangerous-command detection for additional destructive git patterns ([6d950f3](https://github.com/Dicklesworthstone/destructive_command_guard/commit/6d950f3), [031e84a](https://github.com/Dicklesworthstone/destructive_command_guard/commit/031e84a))
 - Removed safe patterns in strict git pack that created a compound-command bypass ([d6ce202](https://github.com/Dicklesworthstone/destructive_command_guard/commit/d6ce202))
 - Podman `rm`/`rmi` combined-flag bypass (e.g. `podman rm -af`) ([d9d23b5](https://github.com/Dicklesworthstone/destructive_command_guard/commit/d9d23b5))

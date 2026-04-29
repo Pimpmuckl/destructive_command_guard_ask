@@ -511,7 +511,16 @@ fn register_core_filesystem_suggestions(m: &mut HashMap<&'static str, Vec<Sugges
         "core.filesystem:dd-overwrite-root-home",
         rm_rf_suggestions.clone(),
     );
-    m.insert("core.filesystem:dd-overwrite-general", rm_rf_suggestions);
+    m.insert(
+        "core.filesystem:dd-overwrite-general",
+        rm_rf_suggestions.clone(),
+    );
+    // mv-sensitive-source-root-home: cross-segment bypass closure.
+    // Reuse rm_rf suggestion set (same broad-destruction shape).
+    m.insert(
+        "core.filesystem:mv-sensitive-source-root-home",
+        rm_rf_suggestions,
+    );
 }
 
 /// Register suggestions for heredoc pattern rules.
@@ -1595,6 +1604,7 @@ mod tests {
             "core.filesystem:tar-remove-files-general",
             "core.filesystem:dd-overwrite-root-home",
             "core.filesystem:dd-overwrite-general",
+            "core.filesystem:mv-sensitive-source-root-home",
         ];
 
         for rule in expected_rules {

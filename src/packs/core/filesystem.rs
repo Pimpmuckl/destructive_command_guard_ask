@@ -229,6 +229,26 @@ const DD_OVERWRITE_SUGGESTIONS: &[PatternSuggestion] = &[
         "Read-only dd: output discarded (useful for testing read speed)",
     ),
 ];
+
+/// Suggestions for `mv` cross-segment bypass patterns. The bypass shape is
+/// `mv /etc /tmp/x && rm -rf /tmp/x` — each segment is individually
+/// allowed but together destroys `/etc`. Blocking on a sensitive source
+/// (or destination) closes the first half of the chain.
+const MV_SENSITIVE_SUGGESTIONS: &[PatternSuggestion] = &[
+    PatternSuggestion::new("ls -la {path}", "Verify the source path before any move"),
+    PatternSuggestion::new(
+        "cp -a {path} {path}.bak",
+        "Copy first (preserves the original) — verify the copy, then remove only after confirmation",
+    ),
+    PatternSuggestion::new(
+        "mv {path} {path}.deleted-YYYYMMDD",
+        "In-place rename for soft-delete (no cross-segment hop, easy to undo)",
+    ),
+    PatternSuggestion::new(
+        "mv /tmp/{subdir}/foo /tmp/{subdir}/bar",
+        "Safe temp-directory rename (allowed without confirmation)",
+    ),
+];
 use crate::{normalize::NormalizeTokenKind, normalize::tokenize_for_normalization};
 use std::ops::Range;
 
@@ -605,7 +625,9 @@ pub fn create_pack() -> Pack {
         // as an archive operation.
         // Mirror entries MUST also exist in src/packs/mod.rs::PACK_ENTRIES
         // (the duplicate-source-of-truth that gates execution).
-        keywords: &["rm", "find", "unlink", "truncate", "shred", "tar", "dd"],
+        keywords: &[
+            "rm", "find", "unlink", "truncate", "shred", "tar", "dd", "mv",
+        ],
         safe_patterns: create_safe_patterns(),
         destructive_patterns: create_destructive_patterns(),
         keyword_matcher: None,
@@ -978,6 +1000,43 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         ),
         // dd invoked with --help / --version is read-only.
         safe_pattern!("dd-help", r"^dd\s+(?:--help|--version)\s*$"),
+        // -----------------------------------------------------------------
+        // `mv` safe whitelist.
+        //
+        // The destructive `mv-sensitive-source-root-home` rule fires on
+        // any mv whose command line mentions a sensitive path (source OR
+        // destination) — the regex doesn't position-parse args because
+        // mv supports `-t target sources...`, multi-source moves, and
+        // various flag interleavings. False positives only happen for
+        // /var/tmp (which contains the sensitive `/var` prefix); these
+        // safe patterns rescue when ALL positional paths are under the
+        // matching tmp variant. Pure /tmp / $TMPDIR moves don't even
+        // reach the destructive rule (those prefixes aren't sensitive)
+        // but we whitelist them for symmetry and discoverability.
+        //
+        // Pattern shape: anchored `^...$`, optional flags (each may take
+        // a non-path-like value to swallow `-t target`-style args), then
+        // one or more tmp-family paths separated by whitespace, then
+        // optional trailing flags.
+        // -----------------------------------------------------------------
+        safe_pattern!(
+            "mv-tmp",
+            r"^mv(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s+(?:/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s+)+/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s*$"
+        ),
+        safe_pattern!(
+            "mv-var-tmp",
+            r"^mv(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s+(?:/var/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s+)+/var/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s*$"
+        ),
+        safe_pattern!(
+            "mv-tmpdir",
+            r"^mv(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s+(?:\$TMPDIR/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s+)+\$TMPDIR/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s*$"
+        ),
+        safe_pattern!(
+            "mv-tmpdir-brace",
+            r"^mv(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s+(?:\$\{TMPDIR\}/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s+)+\$\{TMPDIR\}/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+\s*$"
+        ),
+        // mv invoked with --help / --version is read-only.
+        safe_pattern!("mv-help", r"^mv\s+(?:--help|--version)\s*$"),
     ]
 }
 
@@ -1459,6 +1518,60 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
              - For temp scratch: `dd if=/dev/zero of=/tmp/<subdir>/scratch` is allowed.\n\
              - For device writes: enable the `system.disk` pack.",
             DD_OVERWRITE_SUGGESTIONS
+        ),
+        // ----- `mv <sensitive>` (Critical: cross-segment bypass) -----
+        //
+        // Closes the canonical cross-segment recursive-force-delete
+        // bypass: `mv /etc /tmp/x && rm -rf /tmp/x`. Each segment is
+        // individually allowed (mv-to-tmp is benign on its own; rm-rf-
+        // in-tmp is safe-pattern-rescued) but the pair destroys /etc.
+        // The same shape applies to `mv /etc /dev/null`,
+        // `mv /home/user /tmp/$$ && find /tmp/$$ -delete`, and any
+        // future "move sensitive away from its semantic location, then
+        // delete elsewhere" chain.
+        //
+        // Approach A from the bead's design: block ANY mv that mentions
+        // a sensitive path (source OR destination). Position-parsing
+        // mv's args is brittle (`-t target sources...`, multi-source,
+        // mixed flags) so we taint the whole command on any sensitive
+        // mention. Two consequences worth noting:
+        //
+        //   1. `mv /etc/hosts /etc/hosts.bak` (in-place rename inside
+        //      /etc) blocks. Per the bead's v1 decision: rename within
+        //      /etc is rare; allow-once covers legitimate cases.
+        //   2. `mv ./build/foo /etc/local-config.bak` (write INTO /etc)
+        //      blocks. Modifying /etc from a non-system source is
+        //      itself a system change; conservative-block is correct.
+        //
+        // Out of scope (filed separately as Approach B): the more
+        // general data-flow / taint-propagation analyzer that would
+        // also catch `cp -al /etc /tmp/x && rm -rf /tmp/x`,
+        // `ln -s /etc /tmp/x && rm -rf /tmp/x/.`, etc.
+        //
+        // /var/tmp false-positive trap: `/var` is in the sensitive set
+        // so `mv /var/tmp/foo /var/tmp/bar` matches the destructive
+        // regex. The `mv-var-tmp` safe pattern rescues. Same defense
+        // applies to /tmp / $TMPDIR moves (those don't even trip the
+        // destructive regex but are whitelisted for symmetry).
+        destructive_pattern!(
+            "mv-sensitive-source-root-home",
+            r#"\bmv\b[^|;&]*?(?:\s|=)['"\\]?(?:/(?:etc|usr|bin|sbin|root|boot|lib|lib64|var|home|sys|proc|dev|opt)(?:/|(?=[\s\)'"]|$))|/(?=[\s\)'"]|$)|~(?=\s|$|/|\))|\$\{?HOME\b)"#,
+            "mv touching a sensitive system or home path is the cross-segment recursive-force-delete bypass. EXTREMELY DANGEROUS.",
+            Critical,
+            "`mv /etc /tmp/x && rm -rf /tmp/x` is the canonical cross-segment bypass: \
+             each segment is individually allowed (mv-to-tmp is benign; rm-rf-in-tmp \
+             is safe) but the pair destroys `/etc`. The same shape closes via \
+             `mv /etc /dev/null`, `mv $HOME /tmp/x`, or any \"relocate then delete\" chain.\n\n\
+             Any mv that mentions a sensitive path (source OR destination — `/etc`, \
+             `/usr`, `/var`, `/home`, `~`, `$HOME`, ...) blocks here, including \
+             in-place renames within /etc.\n\n\
+             Safer alternatives:\n\
+             - Backup with copy + verify + delete:\n  \
+               `cp -a <source> <source>.bak && diff -r <source> <source>.bak && rm -rf <source>`\n\
+             - Soft-delete via in-place rename: `mv <file> <file>.deleted-YYYYMMDD` \
+               (use `dcg allow-once` for the rename, then a follow-up `rm` after a soak period).\n\
+             - Pure tmp-to-tmp moves: `mv /tmp/<a> /tmp/<b>` is allowed.",
+            MV_SENSITIVE_SUGGESTIONS
         ),
     ]
 }
@@ -2354,6 +2467,135 @@ mod tests {
                 "/bin/dd if=/dev/urandom of=/etc/shadow",
                 "dd if=/dev/urandom of=/etc/shadow",
             ),
+        ] {
+            let normalized = normalize_command(input);
+            assert!(
+                normalized.contains(expected),
+                "PATH_NORMALIZER did not strip `{input}` to `{expected}` (got `{normalized}`)"
+            );
+        }
+    }
+
+    // ---------- mv: cross-segment recursive-force-delete bypass ----------
+
+    #[test]
+    fn mv_sensitive_source_blocks_critical() {
+        let pack = create_pack();
+        for cmd in [
+            // Canonical bypass shape (only the mv portion is asserted;
+            // the && rm -rf /tmp/x second segment is independently
+            // safe-rescued by rm-rf-tmp).
+            "mv /etc /tmp/x",
+            "mv /etc/passwd /tmp/passwd-deleted",
+            "mv /home/user /tmp/relocated",
+            "mv $HOME /tmp/x",
+            "mv ${HOME} /tmp/x",
+            "mv ~/.ssh /tmp/keys",
+            "mv /usr/local /tmp/x",
+            "mv /var/log /tmp/log-relocated",
+            // /dev/null silent destruction.
+            "mv /etc /dev/null",
+            "mv /home/user /dev/null",
+            // Destination is sensitive (writing INTO /etc).
+            "mv ./build/foo /etc/local-config.bak",
+            "mv ./key.pem /home/user/.ssh/id_rsa",
+            // In-place rename within /etc — bead's v1 decision: BLOCK.
+            "mv /etc/hosts /etc/hosts.bak",
+            "mv /etc/passwd /etc/passwd.old",
+            // With flags.
+            "mv -v /etc /tmp/x",
+            "mv -f /etc /tmp/x",
+            "mv -t /tmp/x /etc",
+            "mv --backup=numbered /etc /tmp/x",
+            // Quoted paths.
+            "mv \"/etc\" /tmp/x",
+            "mv '/etc' /tmp/x",
+            // Compound forms.
+            "echo done; mv /etc /tmp/x",
+            "true && mv /etc /tmp/x",
+            "(mv /etc /tmp/x)",
+            // Wrappers.
+            "sudo mv /etc /tmp/x",
+            "env FOO=bar mv /etc /tmp/x",
+            // Path-prefixed.
+            "/usr/bin/mv /etc /tmp/x",
+            "/bin/mv /etc /tmp/x",
+        ] {
+            assert_blocks_with_severity(&pack, cmd, Severity::Critical);
+            assert_blocks_with_pattern(&pack, cmd, "mv-sensitive-source-root-home");
+        }
+    }
+
+    #[test]
+    fn mv_no_sensitive_path_is_allowed() {
+        let pack = create_pack();
+        // No sensitive path in source OR dest → destructive rule doesn't
+        // fire → default-allow.
+        for cmd in [
+            "mv ./old.txt ./new.txt",
+            "mv build/output.bin dist/",
+            "mv foo.log foo.log.1",
+            "mv ./src/a.rs ./src/b.rs",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn mv_under_tmp_is_allowed() {
+        let pack = create_pack();
+        // All tmp-family moves are rescued by the explicit safe patterns
+        // (mv-tmp / mv-var-tmp / mv-tmpdir / mv-tmpdir-brace). For /var/tmp
+        // the safe pattern is load-bearing because /var is sensitive and
+        // would otherwise trip the destructive rule; for /tmp / $TMPDIR
+        // the safe pattern is whitelisted for symmetry/discoverability —
+        // those prefixes aren't sensitive so the destructive rule
+        // wouldn't fire either way, but the explicit allow makes the
+        // intent clearer to anyone reading explain output.
+        for cmd in [
+            "mv /tmp/foo /tmp/bar",
+            "mv /tmp/foo /tmp/sub/bar",
+            "mv -v /tmp/foo /tmp/bar",
+            "mv /var/tmp/foo /var/tmp/bar",
+            "mv /var/tmp/dir1 /var/tmp/dir2",
+            "mv $TMPDIR/foo $TMPDIR/bar",
+            "mv ${TMPDIR}/foo ${TMPDIR}/bar",
+        ] {
+            assert_safe_pattern_matches(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn mv_help_is_allowed() {
+        let pack = create_pack();
+        for cmd in ["mv --help", "mv --version"] {
+            assert_safe_pattern_matches(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn mv_no_false_positive_substring_traps() {
+        let pack = create_pack();
+        for cmd in [
+            "cat mv-script.sh",
+            "ls mv-readme.md",
+            "echo mv",
+            "echo amv-tools",
+            // No `mv` invocation at all — sensitive paths in unrelated
+            // commands must not falsely match.
+            "ls /etc",
+            "cat /etc/passwd",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn mv_path_prefixed_normalizes_to_bare() {
+        use crate::normalize::normalize_command;
+        for (input, expected) in [
+            ("/usr/bin/mv /etc /tmp/x", "mv /etc /tmp/x"),
+            ("/bin/mv /home/user /tmp/x", "mv /home/user /tmp/x"),
         ] {
             let normalized = normalize_command(input);
             assert!(

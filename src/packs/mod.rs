@@ -918,6 +918,11 @@ static PACK_ENTRIES: [PackEntry; 83] = [
         // truncate-equivalent for files. Device-level dd (`of=/dev/sda`)
         // is system.disk's territory; this pack's dd rules exclude the
         // /dev path family entirely.
+        //
+        // `mv` and `/mv` enable detection of the cross-segment bypass
+        // `mv /etc /tmp/x && rm -rf /tmp/x` — each segment is allowed
+        // individually but the pair destroys /etc. The mv rule blocks
+        // any mv whose source (or destination) is a sensitive path.
         &[
             "rm",
             "/rm",
@@ -933,6 +938,8 @@ static PACK_ENTRIES: [PackEntry; 83] = [
             "/tar",
             "dd",
             "/dd",
+            "mv",
+            "/mv",
         ],
         core::filesystem::create_pack,
     ),
