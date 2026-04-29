@@ -503,8 +503,15 @@ fn register_core_filesystem_suggestions(m: &mut HashMap<&'static str, Vec<Sugges
     );
     m.insert(
         "core.filesystem:tar-remove-files-general",
-        rm_rf_suggestions,
+        rm_rf_suggestions.clone(),
     );
+    // dd-overwrite-* (file-level dd with of=<sensitive>): file
+    // truncate-equivalent. Reuse the rm_rf suggestion set.
+    m.insert(
+        "core.filesystem:dd-overwrite-root-home",
+        rm_rf_suggestions.clone(),
+    );
+    m.insert("core.filesystem:dd-overwrite-general", rm_rf_suggestions);
 }
 
 /// Register suggestions for heredoc pattern rules.
@@ -1586,6 +1593,8 @@ mod tests {
             "core.filesystem:shred-general",
             "core.filesystem:tar-remove-files-root-home",
             "core.filesystem:tar-remove-files-general",
+            "core.filesystem:dd-overwrite-root-home",
+            "core.filesystem:dd-overwrite-general",
         ];
 
         for rule in expected_rules {

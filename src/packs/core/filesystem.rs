@@ -206,6 +206,29 @@ const TAR_REMOVE_FILES_SUGGESTIONS: &[PatternSuggestion] = &[
         "Verify the source path before archive+delete",
     ),
 ];
+
+/// Suggestions for `dd` overwrite patterns. `dd if=/dev/zero of=<file>`
+/// or `dd if=/dev/urandom of=<file>` overwrites the file's contents in
+/// place — equivalent to `truncate -s 0` followed by writing zeros/
+/// garbage. Device-level dd (`of=/dev/sda`) is system.disk's territory.
+const DD_OVERWRITE_SUGGESTIONS: &[PatternSuggestion] = &[
+    PatternSuggestion::new(
+        "ls -la {path}",
+        "Verify the path before overwriting (no recovery)",
+    ),
+    PatternSuggestion::new(
+        "cp {path} {path}.bak && dd if=/dev/zero of={path} bs=1M count=10",
+        "Make a backup first if you might need the data",
+    ),
+    PatternSuggestion::new(
+        "dd if=/dev/zero of=/tmp/{subdir}/scratch bs=1M count=10",
+        "Safe temp-directory dd (allowed without confirmation)",
+    ),
+    PatternSuggestion::new(
+        "dd if={path} of=/dev/null",
+        "Read-only dd: output discarded (useful for testing read speed)",
+    ),
+];
 use crate::{normalize::NormalizeTokenKind, normalize::tokenize_for_normalization};
 use std::ops::Range;
 
@@ -582,7 +605,7 @@ pub fn create_pack() -> Pack {
         // as an archive operation.
         // Mirror entries MUST also exist in src/packs/mod.rs::PACK_ENTRIES
         // (the duplicate-source-of-truth that gates execution).
-        keywords: &["rm", "find", "unlink", "truncate", "shred", "tar"],
+        keywords: &["rm", "find", "unlink", "truncate", "shred", "tar", "dd"],
         safe_patterns: create_safe_patterns(),
         destructive_patterns: create_destructive_patterns(),
         keyword_matcher: None,
@@ -913,6 +936,48 @@ fn create_safe_patterns() -> Vec<SafePattern> {
             "tar-remove-files-tmpdir-brace",
             r"^tar(?=\s+[^|;&]*--remove-files\b)(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s+\$\{TMPDIR\}/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+(?:\s+(?:-[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^/~$\-\s][^\s|;&]*)?|--[a-z\-]+(?:=\S+|\s+[^/~$\-\s][^\s|;&]*)?))*\s*$"
         ),
+        // -----------------------------------------------------------------
+        // `dd` safe whitelist.
+        //
+        // `dd if=/dev/zero of=<file>` (or `if=/dev/urandom of=<file>`)
+        // overwrites the file's content in place — the truncate-equivalent
+        // for files. The destructive trigger is `of=` to a sensitive path
+        // that is NOT under /dev (device-level dd is system.disk's
+        // territory; this pack's dd rules exclude /dev entirely).
+        //
+        // Operand syntax: dd's positional arguments are all `key=value`
+        // pairs (`if=`, `of=`, `bs=`, `count=`, `status=`, `conv=`, ...)
+        // and can appear in any order. The flexible operand pattern below
+        // matches any `letters=value` token plus optional --long-flags.
+        //
+        // Pattern shape: anchored `^...$`, optional operands/flags,
+        // `of=/tmp/...`, optional trailing operands/flags. The
+        // `(?=\s+[^|;&]*\bof=)` lookahead requires `of=` to actually be
+        // present (otherwise no destruction trigger and no rescue needed).
+        //
+        // Trade-off accepted: a multi-of= command (extremely rare; dd
+        // only reads the LAST of= operand per POSIX) is not specially
+        // handled; the safe pattern fires if the LAST positional in the
+        // command-line happens to be a tmp path.
+        // -----------------------------------------------------------------
+        safe_pattern!(
+            "dd-tmp",
+            r#"^dd(?=\s+[^|;&]*\bof=)(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s+of=['"]?/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s*$"#
+        ),
+        safe_pattern!(
+            "dd-var-tmp",
+            r#"^dd(?=\s+[^|;&]*\bof=)(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s+of=['"]?/var/tmp/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s*$"#
+        ),
+        safe_pattern!(
+            "dd-tmpdir",
+            r#"^dd(?=\s+[^|;&]*\bof=)(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s+of=['"]?\$TMPDIR/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s*$"#
+        ),
+        safe_pattern!(
+            "dd-tmpdir-brace",
+            r#"^dd(?=\s+[^|;&]*\bof=)(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s+of=['"]?\$\{TMPDIR\}/(?!\.\.(?:/|\s|$)|[^\s]*/\.\.(?:/|\s|$))\S+(?:\s+(?:[a-zA-Z]+=\S+|--?[a-zA-Z][a-zA-Z0-9\-]*(?:=\S+)?))*\s*$"#
+        ),
+        // dd invoked with --help / --version is read-only.
+        safe_pattern!("dd-help", r"^dd\s+(?:--help|--version)\s*$"),
     ]
 }
 
@@ -1333,6 +1398,67 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
              - Verify the source list with `ls -la` before running.\n\
              - For temp scratch: `tar --remove-files -cf out.tar /tmp/<subdir>` is allowed.",
             TAR_REMOVE_FILES_SUGGESTIONS
+        ),
+        // ----- `dd of=<sensitive>` (Critical: root/home/system) -----
+        //
+        // `dd if=/dev/zero of=<file>` (or `if=/dev/urandom of=<file>`)
+        // overwrites the file's contents in place — the truncate-equivalent
+        // for files. The destruction trigger is the `of=` operand pointing
+        // at a sensitive non-/dev path. The `if=` operand is the SOURCE
+        // (read-only); only `of=` matters for destruction.
+        //
+        // Scope: FILES only. Device-level dd (`of=/dev/sda`) is
+        // system.disk's territory — `(?!/dev/)` excludes the entire
+        // /dev path family from this rule, including /dev/null (which
+        // is correctly read-as-discard, never destruction). When
+        // system.disk is enabled, it owns device writes; nqhi.8 will
+        // promote it to default-enabled.
+        //
+        // Path-tail terminator set includes `)` so subshell forms like
+        // `(dd if=/dev/zero of=/etc/passwd)` still classify as Critical.
+        destructive_pattern!(
+            "dd-overwrite-root-home",
+            r#"\bdd\b[^|;&]*?\bof=['"\\]?(?!/dev/)(?:/(?:etc|usr|bin|sbin|root|boot|lib|lib64|var|home|sys|proc|opt)(?:/|(?=[\s\)'"]|$))|/(?=[\s\)'"]|$)|~(?=\s|$|/|\))|\$\{?HOME\b)"#,
+            "dd of=<sensitive-path> overwrites file contents in place. EXTREMELY DANGEROUS on a system or home file.",
+            Critical,
+            "`dd if=/dev/zero of=<file>` and `dd if=/dev/urandom of=<file>` overwrite the \
+             file's contents in place — the `truncate -s 0` equivalent at the dd layer. \
+             On a sensitive system file (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers`) or \
+             a home-directory key/credential the result is irrecoverable. Even without an \
+             explicit input source (`dd of=<file>` reads from stdin), the file's content \
+             is destroyed.\n\n\
+             There is NO recovery without backups.\n\n\
+             Safer alternatives:\n\
+             - Make a backup first: `cp <file> <file>.bak && dd if=/dev/zero of=<file>`.\n\
+             - For read-only verification: `dd if=<file> of=/dev/null` (output discarded).\n\
+             - For temp scratch: `dd if=/dev/zero of=/tmp/<subdir>/scratch` is allowed.\n\n\
+             Device-level dd (`dd of=/dev/sda`) is governed by the `system.disk` pack \
+             — enable it for partition-table protection.",
+            DD_OVERWRITE_SUGGESTIONS
+        ),
+        // ----- `dd of=<any-non-tmp>` (High: any other target) -----
+        //
+        // Fires after the safe-pattern whitelist (which allows the temp-
+        // directory variants). `(?!/dev/)` excludes the entire /dev path
+        // family (system.disk's scope). Any other dd-with-of= invocation
+        // is unscoped destruction that should require human approval, by
+        // analogy with `truncate-zero-general` and `shred-general`.
+        destructive_pattern!(
+            "dd-overwrite-general",
+            r#"\bdd\b[^|;&]*?\bof=['"\\]?(?!/dev/)\S"#,
+            "dd with of=<file> overwrites file contents and requires human approval.",
+            High,
+            "`dd of=<file>` overwrites the file's contents (with the input from `if=` \
+             or stdin if no input source is given). While not as broad as `rm -rf`, a \
+             typo in the target path destroys an unintended file with no possibility of \
+             undo.\n\n\
+             Safer alternatives:\n\
+             - Verify the path first: `ls -la <file>`.\n\
+             - Make a backup: `cp <file> <file>.bak && dd if=/dev/zero of=<file>`.\n\
+             - Read-only verification: `dd if=<file> of=/dev/null`.\n\
+             - For temp scratch: `dd if=/dev/zero of=/tmp/<subdir>/scratch` is allowed.\n\
+             - For device writes: enable the `system.disk` pack.",
+            DD_OVERWRITE_SUGGESTIONS
         ),
     ]
 }
@@ -2053,6 +2179,180 @@ mod tests {
             (
                 "/bin/tar --remove-files -cf out.tar /home/user",
                 "tar --remove-files -cf out.tar /home/user",
+            ),
+        ] {
+            let normalized = normalize_command(input);
+            assert!(
+                normalized.contains(expected),
+                "PATH_NORMALIZER did not strip `{input}` to `{expected}` (got `{normalized}`)"
+            );
+        }
+    }
+
+    // ---------- dd of=: file-level overwrite (truncate-equivalent) ----------
+
+    #[test]
+    fn dd_overwrite_blocks_root_critical() {
+        let pack = create_pack();
+        for cmd in [
+            // Canonical form.
+            "dd if=/dev/zero of=/etc/passwd",
+            "dd if=/dev/urandom of=/etc/shadow",
+            "dd if=/dev/zero of=/etc/sudoers",
+            // With bs/count operands.
+            "dd if=/dev/zero of=/etc/passwd bs=1M count=10",
+            "dd if=/dev/urandom of=/etc/shadow bs=4096 count=1",
+            // Operand order swapped (of= first).
+            "dd of=/etc/passwd if=/dev/zero",
+            "dd of=/etc/passwd if=/dev/zero bs=1M",
+            // No if= operand (reads from stdin — still destroys content).
+            "dd of=/etc/passwd",
+            // Quoted paths.
+            "dd if=/dev/zero of=\"/etc/passwd\"",
+            "dd if=/dev/zero of='/etc/shadow'",
+            // Home variants.
+            "dd if=/dev/zero of=~/.ssh/id_ed25519",
+            "dd if=/dev/zero of=$HOME/.aws/credentials",
+            "dd if=/dev/zero of=${HOME}/.gnupg/secring.gpg",
+            // Other system roots.
+            "dd if=/dev/zero of=/usr/bin/sudo",
+            "dd if=/dev/zero of=/boot/vmlinuz",
+            // Compound forms.
+            "echo done; dd if=/dev/zero of=/etc/passwd",
+            "true && dd if=/dev/zero of=/etc/passwd",
+            "(dd if=/dev/zero of=/etc/passwd)",
+            // Wrappers.
+            "sudo dd if=/dev/zero of=/etc/passwd",
+            "env FOO=bar dd if=/dev/zero of=/etc/passwd",
+            // Path-prefixed.
+            "/usr/bin/dd if=/dev/zero of=/etc/passwd",
+            "/bin/dd if=/dev/zero of=/etc/shadow",
+        ] {
+            assert_blocks_with_severity(&pack, cmd, Severity::Critical);
+            assert_blocks_with_pattern(&pack, cmd, "dd-overwrite-root-home");
+        }
+    }
+
+    #[test]
+    fn dd_overwrite_blocks_general_high() {
+        let pack = create_pack();
+        for cmd in [
+            "dd if=/dev/zero of=./important.db",
+            "dd if=/dev/urandom of=secrets.txt",
+            "dd if=/dev/zero of=build/output.bin bs=1M count=10",
+            "dd of=workspace/critical.bin",
+            "dd if=/dev/zero of=/data/important",
+        ] {
+            assert_blocks_with_severity(&pack, cmd, Severity::High);
+            assert_blocks_with_pattern(&pack, cmd, "dd-overwrite-general");
+        }
+    }
+
+    #[test]
+    fn dd_to_dev_null_is_allowed() {
+        // Read-only dd with output discarded — this is the canonical
+        // way to test read speed of a sensitive file. Must NOT block.
+        // The pack's destructive regex excludes /dev/ entirely, so
+        // these fall through to default-allow without needing a safe
+        // pattern.
+        let pack = create_pack();
+        for cmd in [
+            "dd if=/etc/passwd of=/dev/null",
+            "dd if=/etc/shadow of=/dev/null bs=1M",
+            "dd if=/dev/sda of=/dev/null count=1024",
+            "dd if=/etc/sudoers of=/dev/zero",
+            "dd if=/etc/passwd of=/dev/full",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_to_device_falls_through_to_system_disk() {
+        // Out of scope per bead: device-level dd (`of=/dev/sda`) is
+        // governed by the system.disk pack, not core.filesystem. The
+        // `(?!/dev/)` lookahead in our regex excludes /dev entirely.
+        let pack = create_pack();
+        for cmd in [
+            "dd if=/dev/zero of=/dev/sda",
+            "dd if=/dev/urandom of=/dev/sdb1",
+            "dd of=/dev/loop0 if=/tmp/img",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_backup_to_tmp_from_sensitive_is_allowed() {
+        // `dd if=/etc/passwd of=/tmp/passwd.bak` — backup (READ from
+        // sensitive, WRITE to tmp). The destructive trigger is `of=`,
+        // not `if=`; since `of=/tmp/...` matches the safe whitelist,
+        // this is NOT destruction.
+        let pack = create_pack();
+        for cmd in [
+            "dd if=/etc/passwd of=/tmp/passwd.bak",
+            "dd if=/etc/shadow of=/tmp/shadow.backup",
+            "dd if=/home/user/.ssh/id_ed25519 of=/tmp/keybackup",
+        ] {
+            assert_safe_pattern_matches(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_under_tmp_is_allowed() {
+        let pack = create_pack();
+        for cmd in [
+            "dd if=/dev/zero of=/tmp/scratch.bin bs=1M count=10",
+            "dd if=/dev/urandom of=/tmp/random.bin bs=4096 count=1",
+            "dd if=/dev/zero of=/var/tmp/cache.bin",
+            "dd if=/dev/zero of=$TMPDIR/cache.bin",
+            "dd if=/dev/zero of=${TMPDIR}/scratch",
+            "dd of=/tmp/out.bin",
+            "dd of=/tmp/out.bin if=/dev/zero",
+        ] {
+            assert_safe_pattern_matches(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_help_is_allowed() {
+        let pack = create_pack();
+        for cmd in ["dd --help", "dd --version"] {
+            assert_safe_pattern_matches(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_no_false_positive_substring_traps() {
+        let pack = create_pack();
+        for cmd in [
+            // `dd` is a 2-char common substring. Word-boundary `\bdd\b`
+            // must reject these.
+            "echo address",
+            "ls add-ons.txt",
+            "cat odd.log",
+            "echo dd-script",
+            "ls dd-readme.md",
+            // `dd` alone (no `of=` operand).
+            "dd",
+            "dd if=/dev/zero",
+            "dd if=/etc/passwd",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn dd_path_prefixed_normalizes_to_bare() {
+        use crate::normalize::normalize_command;
+        for (input, expected) in [
+            (
+                "/usr/bin/dd if=/dev/zero of=/etc/passwd",
+                "dd if=/dev/zero of=/etc/passwd",
+            ),
+            (
+                "/bin/dd if=/dev/urandom of=/etc/shadow",
+                "dd if=/dev/urandom of=/etc/shadow",
             ),
         ] {
             let normalized = normalize_command(input);

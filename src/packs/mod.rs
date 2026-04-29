@@ -912,6 +912,12 @@ static PACK_ENTRIES: [PackEntry; 83] = [
         // on the source tree (after archiving). Without these, agents
         // bypass dcg by switching from `rm -rf /etc` to
         // `tar --remove-files -cf /dev/null /etc`.
+        //
+        // `dd` and `/dd` enable file-level overwrite detection via
+        // `dd if=/dev/zero of=<sensitive-file>` and similar — the
+        // truncate-equivalent for files. Device-level dd (`of=/dev/sda`)
+        // is system.disk's territory; this pack's dd rules exclude the
+        // /dev path family entirely.
         &[
             "rm",
             "/rm",
@@ -925,6 +931,8 @@ static PACK_ENTRIES: [PackEntry; 83] = [
             "/shred",
             "tar",
             "/tar",
+            "dd",
+            "/dd",
         ],
         core::filesystem::create_pack,
     ),

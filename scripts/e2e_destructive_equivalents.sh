@@ -581,8 +581,94 @@ scenario_tar_remove_files_bypass_var() {
 }
 
 # ---------------------------------------------------------------------------
+# dd of= (git_safety_guard-nqhi.5)
+# ---------------------------------------------------------------------------
+scenario_dd_root_home() {
+    # Canonical zero/urandom into sensitive files.
+    assert_blocked 'dd if=/dev/zero of=/etc/passwd'                  'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd if=/dev/urandom of=/etc/shadow'               'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd if=/dev/zero of=/etc/sudoers'                 'core.filesystem:dd-overwrite-root-home' 'critical'
+    # With bs/count operands.
+    assert_blocked 'dd if=/dev/zero of=/etc/passwd bs=1M count=10'   'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Operand order swapped (of= first).
+    assert_blocked 'dd of=/etc/passwd if=/dev/zero'                  'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd of=/etc/passwd if=/dev/zero bs=1M'            'core.filesystem:dd-overwrite-root-home' 'critical'
+    # No if= (dd reads from stdin — still destroys content).
+    assert_blocked 'dd of=/etc/passwd'                               'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Quoted paths.
+    assert_blocked 'dd if=/dev/zero of="/etc/passwd"'                'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked "dd if=/dev/zero of='/etc/shadow'"                'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Home variants.
+    assert_blocked 'dd if=/dev/zero of=~/.ssh/id_ed25519'            'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd if=/dev/zero of=$HOME/.aws/credentials'       'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd if=/dev/zero of=${HOME}/.gnupg/secring.gpg'   'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Other system roots.
+    assert_blocked 'dd if=/dev/zero of=/usr/bin/sudo'                'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'dd if=/dev/zero of=/boot/vmlinuz'                'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Compound forms.
+    assert_blocked 'echo done; dd if=/dev/zero of=/etc/passwd'       'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'true && dd if=/dev/zero of=/etc/passwd'          'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked '(dd if=/dev/zero of=/etc/passwd)'                'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Wrappers.
+    assert_blocked 'sudo dd if=/dev/zero of=/etc/passwd'             'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked 'env FOO=bar dd if=/dev/zero of=/etc/passwd'      'core.filesystem:dd-overwrite-root-home' 'critical'
+    # Path-prefixed (PATH_NORMALIZER).
+    assert_blocked '/usr/bin/dd if=/dev/zero of=/etc/passwd'         'core.filesystem:dd-overwrite-root-home' 'critical'
+    assert_blocked '/bin/dd if=/dev/urandom of=/etc/shadow'          'core.filesystem:dd-overwrite-root-home' 'critical'
+}
+
+scenario_dd_general() {
+    assert_blocked 'dd if=/dev/zero of=./important.db'               'core.filesystem:dd-overwrite-general' 'high'
+    assert_blocked 'dd if=/dev/urandom of=secrets.txt'               'core.filesystem:dd-overwrite-general' 'high'
+    assert_blocked 'dd if=/dev/zero of=build/output.bin bs=1M count=10' 'core.filesystem:dd-overwrite-general' 'high'
+    assert_blocked 'dd of=workspace/critical.bin'                    'core.filesystem:dd-overwrite-general' 'high'
+    assert_blocked 'dd if=/dev/zero of=/data/important'              'core.filesystem:dd-overwrite-general' 'high'
+}
+
+scenario_dd_temp_safe() {
+    assert_allowed 'dd if=/dev/zero of=/tmp/scratch.bin bs=1M count=10'
+    assert_allowed 'dd if=/dev/urandom of=/tmp/random.bin bs=4096 count=1'
+    assert_allowed 'dd if=/dev/zero of=/var/tmp/cache.bin'
+    assert_allowed 'dd if=/dev/zero of=$TMPDIR/cache.bin'
+    assert_allowed 'dd if=/dev/zero of=${TMPDIR}/scratch'
+    assert_allowed 'dd of=/tmp/out.bin'
+    assert_allowed 'dd of=/tmp/out.bin if=/dev/zero'
+    # Backup TO tmp from sensitive source — NOT destruction (of= is to tmp).
+    assert_allowed 'dd if=/etc/passwd of=/tmp/passwd.bak'
+    assert_allowed 'dd if=/etc/shadow of=/tmp/shadow.backup'
+    assert_allowed 'dd if=/home/user/.ssh/id_ed25519 of=/tmp/keybackup'
+    # Read-only dd (output discarded — common for read-speed test).
+    assert_allowed 'dd if=/etc/passwd of=/dev/null'
+    assert_allowed 'dd if=/etc/shadow of=/dev/null bs=1M'
+    assert_allowed 'dd if=/dev/sda of=/dev/null count=1024'
+    # --help / --version.
+    assert_allowed 'dd --help'
+    assert_allowed 'dd --version'
+}
+
+scenario_dd_no_false_positive() {
+    # dd is a 2-char common substring — \bdd\b must reject these.
+    assert_allowed 'echo address'
+    assert_allowed 'ls add-ons.txt'
+    assert_allowed 'cat odd.log'
+    assert_allowed 'echo dd-script'
+    assert_allowed 'ls dd-readme.md'
+    # dd alone (no of=).
+    assert_allowed 'dd if=/dev/zero'
+    assert_allowed 'dd if=/etc/passwd'
+    # Device-level dd (out of scope: system.disk's territory).
+    assert_allowed 'dd if=/dev/zero of=/dev/sda'
+    assert_allowed 'dd if=/dev/urandom of=/dev/sdb1'
+}
+
+scenario_dd_bypass_var() {
+    assert_blocked_under_falsy_bypass  'dd if=/dev/zero of=/etc/passwd'    'core.filesystem:dd-overwrite-root-home'
+    assert_blocked_under_falsy_bypass  'dd if=/dev/urandom of=/etc/shadow' 'core.filesystem:dd-overwrite-root-home'
+    assert_allowed_under_truthy_bypass 'dd if=/dev/zero of=/etc/passwd'
+}
+
+# ---------------------------------------------------------------------------
 # (placeholders — implementers replace with concrete assertions)
-# scenario_dd_*() { :; }
 # scenario_redirect_*() { :; }
 # scenario_mv_sensitive_*() { :; }
 # scenario_system_disk_default() { :; }
