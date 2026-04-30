@@ -521,6 +521,20 @@ fn register_core_filesystem_suggestions(m: &mut HashMap<&'static str, Vec<Sugges
         "core.filesystem:mv-sensitive-source-root-home",
         rm_rf_suggestions.clone(),
     );
+    // sensitive-source propagation into temp followed by forced deletion:
+    // same broad data-loss shape as the mv cross-segment bypass.
+    m.insert(
+        "core.filesystem:cp-sensitive-then-delete",
+        rm_rf_suggestions.clone(),
+    );
+    m.insert(
+        "core.filesystem:ln-symlink-sensitive-then-delete",
+        rm_rf_suggestions.clone(),
+    );
+    m.insert(
+        "core.filesystem:rsync-sensitive-then-delete",
+        rm_rf_suggestions.clone(),
+    );
     // redirect-truncate-root-home: shell-syntax truncate-equivalent.
     // Reuse rm_rf suggestion set (single-file destruction shape).
     m.insert(
@@ -1611,6 +1625,9 @@ mod tests {
             "core.filesystem:dd-overwrite-root-home",
             "core.filesystem:dd-overwrite-general",
             "core.filesystem:mv-sensitive-source-root-home",
+            "core.filesystem:cp-sensitive-then-delete",
+            "core.filesystem:ln-symlink-sensitive-then-delete",
+            "core.filesystem:rsync-sensitive-then-delete",
             "core.filesystem:redirect-truncate-root-home",
         ];
 

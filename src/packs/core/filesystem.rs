@@ -250,6 +250,28 @@ const MV_SENSITIVE_SUGGESTIONS: &[PatternSuggestion] = &[
     ),
 ];
 
+/// Suggestions for sensitive-source propagation chains. These commands first
+/// propagate a sensitive path into a temp-family location, then delete that
+/// temp tree in a later shell segment.
+const SENSITIVE_PROPAGATION_DELETE_SUGGESTIONS: &[PatternSuggestion] = &[
+    PatternSuggestion::new(
+        "ls -la {path}",
+        "Verify the sensitive source path before propagating it",
+    ),
+    PatternSuggestion::new(
+        "cp -a {path} {path}.bak",
+        "Keep the backup beside the original and verify it before any later deletion",
+    ),
+    PatternSuggestion::new(
+        "diff -r {path} {path}.bak",
+        "Compare the source and copy before considering removal",
+    ),
+    PatternSuggestion::new(
+        "rm -ri /tmp/{subdir}",
+        "Use interactive removal for temp trees derived from sensitive sources",
+    ),
+];
+
 /// Suggestions for `redirect-truncate-*` patterns. Bash output redirects
 /// (`>`, `>|`, `&>`, `1>`, `2>`) truncate the target file to zero bytes
 /// before writing — the truncate-equivalent at the shell-syntax layer.
@@ -274,6 +296,12 @@ use std::ops::Range;
 
 const RM_RF_ROOT_HOME_NAME: &str = "rm-rf-root-home";
 const RM_RF_ROOT_HOME_REASON: &str = "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the user to run it manually if truly needed.";
+const RM_R_F_SEPARATE_ROOT_HOME_NAME: &str = "rm-r-f-separate-root-home";
+const RM_R_F_SEPARATE_ROOT_HOME_REASON: &str =
+    "rm with separate -r -f flags targeting root or home is EXTREMELY DANGEROUS.";
+const RM_RECURSIVE_FORCE_ROOT_HOME_NAME: &str = "rm-recursive-force-root-home";
+const RM_RECURSIVE_FORCE_ROOT_HOME_REASON: &str =
+    "rm --recursive --force targeting root or home is EXTREMELY DANGEROUS.";
 const RM_RF_GENERAL_NAME: &str = "rm-rf-general";
 const RM_RF_GENERAL_REASON: &str = "rm -rf is destructive and requires human approval. Explain what you want to delete and why, then ask the user to run the command manually.";
 const RM_R_F_SEPARATE_NAME: &str = "rm-r-f-separate";
@@ -282,6 +310,17 @@ const RM_R_F_SEPARATE_REASON: &str =
 const RM_RECURSIVE_FORCE_NAME: &str = "rm-recursive-force-long";
 const RM_RECURSIVE_FORCE_REASON: &str =
     "rm --recursive --force is destructive and requires human approval.";
+
+pub(crate) fn is_pre_rm_propagation_rule(name: Option<&str>) -> bool {
+    matches!(
+        name,
+        Some(
+            "cp-sensitive-then-delete"
+                | "ln-symlink-sensitive-then-delete"
+                | "rsync-sensitive-then-delete"
+        )
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QuoteKind {
@@ -372,6 +411,28 @@ impl RmFlagTracker {
 }
 
 pub(crate) fn parse_rm_command(command: &str) -> RmParseDecision {
+    let segments = crate::packs::split_command_segments(command);
+    if segments.len() > 1 {
+        let mut saw_allow = false;
+        for segment in segments {
+            match parse_rm_command_segment(segment) {
+                RmParseDecision::Deny(hit) => return RmParseDecision::Deny(hit),
+                RmParseDecision::Allow => saw_allow = true,
+                RmParseDecision::NoMatch => {}
+            }
+        }
+
+        return if saw_allow {
+            RmParseDecision::Allow
+        } else {
+            RmParseDecision::NoMatch
+        };
+    }
+
+    parse_rm_command_segment(command)
+}
+
+fn parse_rm_command_segment(command: &str) -> RmParseDecision {
     let tokens = tokenize_for_normalization(command);
     if tokens.is_empty() {
         return RmParseDecision::NoMatch;
@@ -496,16 +557,26 @@ fn parse_rm_segment(
     }
 
     let first_path = paths.first();
-    let is_critical = flag_state.style == RmFlagStyle::Combined
-        && !flag_state.saw_terminator
-        && first_path.is_some_and(path_is_root_home);
+    let is_critical = !flag_state.saw_terminator && first_path.is_some_and(path_is_root_home);
 
     let (pattern_name, reason, severity) = if is_critical {
-        (
-            RM_RF_ROOT_HOME_NAME,
-            RM_RF_ROOT_HOME_REASON,
-            Severity::Critical,
-        )
+        match flag_state.style {
+            RmFlagStyle::Combined => (
+                RM_RF_ROOT_HOME_NAME,
+                RM_RF_ROOT_HOME_REASON,
+                Severity::Critical,
+            ),
+            RmFlagStyle::Separate => (
+                RM_R_F_SEPARATE_ROOT_HOME_NAME,
+                RM_R_F_SEPARATE_ROOT_HOME_REASON,
+                Severity::Critical,
+            ),
+            RmFlagStyle::Long => (
+                RM_RECURSIVE_FORCE_ROOT_HOME_NAME,
+                RM_RECURSIVE_FORCE_ROOT_HOME_REASON,
+                Severity::Critical,
+            ),
+        }
     } else {
         match flag_state.style {
             RmFlagStyle::Combined => (RM_RF_GENERAL_NAME, RM_RF_GENERAL_REASON, Severity::High),
@@ -607,19 +678,36 @@ fn path_is_root_home(path: &PathToken<'_>) -> bool {
     // Tilde expansion only happens if UNQUOTED, but / is absolute regardless.
 
     let text = path.unquoted;
+    if path_text_is_root_home(text) {
+        return true;
+    }
 
+    // Shell quote removal turns unquoted `\/` into `/` and `\~` into `~`.
+    // Treat those escaped leading forms like their literal targets so the
+    // parser preserves the Critical root/home severity instead of falling
+    // through to the general rm-rf rule.
+    if let Some(unescaped) = text.strip_prefix('\\') {
+        return matches!(unescaped.as_bytes().first(), Some(b'/' | b'~'));
+    }
+
+    false
+}
+
+fn path_text_is_root_home(text: &str) -> bool {
     // Absolute paths starting with / are dangerous regardless of quotes
     // e.g. rm -rf "/" is just as deadly as rm -rf /
     if text.starts_with('/') {
         return true;
     }
 
-    // Tilde expansion (~/) only happens if unquoted
-    if path.quote == QuoteKind::None && text.starts_with('~') {
+    if text.starts_with('~') {
         return true;
     }
 
-    false
+    text == "$HOME"
+        || text.starts_with("$HOME/")
+        || text == "${HOME}"
+        || text.starts_with("${HOME}/")
 }
 
 /// Create the core filesystem pack.
@@ -643,11 +731,14 @@ pub fn create_pack() -> Pack {
         // `tar` covers `tar --remove-files <sensitive-source>`, which
         // archives-then-deletes — i.e. recursive-force-delete masquerading
         // as an archive operation.
+        // `cp`, `ln`, and `rsync` cover sensitive-source propagation into
+        // temp-family paths followed by forced recursive deletion.
         // Mirror entries MUST also exist in src/packs/mod.rs::PACK_ENTRIES
         // (the duplicate-source-of-truth that gates execution).
         keywords: &[
-            "rm", "find", "unlink", "truncate", "shred", "tar", "dd", "mv", ">/", "> /", ">~",
-            "> ~", ">$", "> $", ">\"", "> \"", ">'", "> '", "&>", ">|", "1>", "2>",
+            "rm", "find", "unlink", "truncate", "shred", "tar", "dd", "mv", "cp", "ln", "rsync",
+            ">/", "> /", ">~", "> ~", ">$", "> $", ">\"", "> \"", ">'", "> '", "&>", ">|", "1>",
+            "2>",
         ],
         safe_patterns: create_safe_patterns(),
         destructive_patterns: create_destructive_patterns(),
@@ -1069,6 +1160,55 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
     // - Low: Log only
 
     vec![
+        // ----- cross-segment sensitive propagation before rm fallbacks -----
+        //
+        // These patterns must run before the general rm rules below. Otherwise
+        // the trailing `rm -rf /tmp/...` segment in the whole compound command
+        // is attributed as a generic recursive delete before the propagation
+        // chain can be classified.
+        destructive_pattern!(
+            "cp-sensitive-then-delete",
+            r#"\bcp\b[^|;&]*(?:\s(?:-[A-Za-z]*a[A-Za-z]*|--archive)\b)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/(?:etc|usr|bin|sbin|root|boot|lib|lib64|var|home|sys|proc|dev|opt)(?:/|(?=[\s\)'"]|$))|/(?=[\s\)'"]|$)|~(?=\s|$|/|\))|\$\{?HOME\b)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)[^|;&\s'"]*[^|;&]*(?:&&|;|\|\|)[^|;&]*\brm\b[^|;&]*\s(?:-[A-Za-z]*[rR][A-Za-z]*f[A-Za-z]*|-[A-Za-z]*f[A-Za-z]*[rR][A-Za-z]*|-[rR]\s+-f|-f\s+-[rR]|--recursive\s+--force|--force\s+--recursive)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)"#,
+            "archive copy of a sensitive path into temp followed by forced recursive deletion is a cross-segment data-loss bypass. EXTREMELY DANGEROUS.",
+            Critical,
+            "`cp -al /etc /tmp/x && rm -rf /tmp/x` is a propagation variant of the \
+             relocate-then-delete bypass: the copy segment is allowed, and the temp \
+             delete segment is normally safe, but the compound command can destroy \
+             sensitive content or hide irreversible deletion behind a temp path.\n\n\
+             Safer alternatives:\n\
+             - Copy beside the original or into a named backup path and verify with `diff -r`.\n\
+             - Do not combine sensitive-source propagation and forced deletion in one command.\n\
+             - Use `rm -ri` if a derived temp tree genuinely needs manual cleanup.",
+            SENSITIVE_PROPAGATION_DELETE_SUGGESTIONS
+        ),
+        destructive_pattern!(
+            "ln-symlink-sensitive-then-delete",
+            r#"\bln\b[^|;&]*\s-[A-Za-z]*s[A-Za-z]*[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/(?:etc|usr|bin|sbin|root|boot|lib|lib64|var|home|sys|proc|dev|opt)(?:/|(?=[\s\)'"]|$))|/(?=[\s\)'"]|$)|~(?=\s|$|/|\))|\$\{?HOME\b)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)[^|;&\s'"]*[^|;&]*(?:&&|;|\|\|)[^|;&]*\brm\b[^|;&]*\s(?:-[A-Za-z]*[rR][A-Za-z]*f[A-Za-z]*|-[A-Za-z]*f[A-Za-z]*[rR][A-Za-z]*|-[rR]\s+-f|-f\s+-[rR]|--recursive\s+--force|--force\s+--recursive)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)"#,
+            "symlink from a sensitive path into temp followed by forced recursive deletion can traverse and destroy the target. EXTREMELY DANGEROUS.",
+            Critical,
+            "`ln -s /etc /tmp/x && rm -rf /tmp/x/.` can turn an apparently safe temp \
+             cleanup into deletion through a symlink. The temp path does not make the \
+             operation safe once it points back at a sensitive tree.\n\n\
+             Safer alternatives:\n\
+             - Inspect symlinks with `readlink` and `ls -la` before removing anything.\n\
+             - Remove only the link itself with `unlink /tmp/<link>` when that is the intent.\n\
+             - Avoid combining symlink creation and recursive deletion in one command.",
+            SENSITIVE_PROPAGATION_DELETE_SUGGESTIONS
+        ),
+        destructive_pattern!(
+            "rsync-sensitive-then-delete",
+            r#"\brsync\b[^|;&]*(?:\s(?:-[A-Za-z]*a[A-Za-z]*|--archive)\b)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/(?:etc|usr|bin|sbin|root|boot|lib|lib64|var|home|sys|proc|dev|opt)(?:/|(?=[\s\)'"]|$))|/(?=[\s\)'"]|$)|~(?=\s|$|/|\))|\$\{?HOME\b)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)[^|;&\s'"]*[^|;&]*(?:&&|;|\|\|)[^|;&]*\brm\b[^|;&]*\s(?:-[A-Za-z]*[rR][A-Za-z]*f[A-Za-z]*|-[A-Za-z]*f[A-Za-z]*[rR][A-Za-z]*|-[rR]\s+-f|-f\s+-[rR]|--recursive\s+--force|--force\s+--recursive)[^|;&]*?(?:\s|=)(?:['"\\]|\$['"])?(?:/tmp/|/var/tmp/|\$TMPDIR/|\$\{TMPDIR\}/)"#,
+            "rsync archive of a sensitive path into temp followed by forced recursive deletion is a cross-segment data-loss bypass. EXTREMELY DANGEROUS.",
+            Critical,
+            "`rsync -a /etc/ /tmp/dest/ && rm -rf /tmp/dest` is the rsync form of the \
+             sensitive-source propagation bypass. Archive mode preserves enough structure \
+             that the later temp cleanup should require human review.\n\n\
+             Safer alternatives:\n\
+             - Run rsync and inspect the destination in a separate step.\n\
+             - Use `--dry-run` for rsync previews.\n\
+             - Use `rm -ri` for manual cleanup of derived temp trees.",
+            SENSITIVE_PROPAGATION_DELETE_SUGGESTIONS
+        ),
         // rm -rf on root or home paths (CRITICAL - catastrophic, never allow)
         // Target set covers:
         //   - literal `/` or `~` (optionally quoted/backslash-escaped)
@@ -1564,10 +1704,9 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         //      blocks. Modifying /etc from a non-system source is
         //      itself a system change; conservative-block is correct.
         //
-        // Out of scope (filed separately as Approach B): the more
-        // general data-flow / taint-propagation analyzer that would
-        // also catch `cp -al /etc /tmp/x && rm -rf /tmp/x`,
-        // `ln -s /etc /tmp/x && rm -rf /tmp/x/.`, etc.
+        // The sibling propagation rules below cover the three common
+        // Approach B shapes (`cp -a`, `ln -s`, `rsync -a`) without trying
+        // to become a full shell data-flow engine.
         //
         // /var/tmp false-positive trap: `/var` is in the sensitive set
         // so `mv /var/tmp/foo /var/tmp/bar` matches the destructive
@@ -1687,6 +1826,10 @@ mod tests {
         // Required for the find -delete bypass family — see
         // `find-delete-root-home` / `find-delete-general` patterns.
         assert!(pack.keywords.contains(&"find"));
+        // Required for phase-1 cross-segment propagation coverage.
+        assert!(pack.keywords.contains(&"cp"));
+        assert!(pack.keywords.contains(&"ln"));
+        assert!(pack.keywords.contains(&"rsync"));
     }
 
     // ---------- find -delete: closes the rm -rf bypass ----------
@@ -2638,6 +2781,73 @@ mod tests {
     }
 
     #[test]
+    fn sensitive_propagation_then_delete_blocks_critical() {
+        let pack = create_pack();
+        for (cmd, pattern) in [
+            (
+                "cp -al /etc /tmp/x && rm -rf /tmp/x",
+                "cp-sensitive-then-delete",
+            ),
+            (
+                "cp --archive /etc/passwd /tmp/passwd && rm -fr /tmp/passwd",
+                "cp-sensitive-then-delete",
+            ),
+            (
+                "sudo cp -a /home/user/.ssh /var/tmp/keys && rm --recursive --force /var/tmp/keys",
+                "cp-sensitive-then-delete",
+            ),
+            (
+                "ln -s /etc /tmp/x && rm -rf /tmp/x/.",
+                "ln-symlink-sensitive-then-delete",
+            ),
+            (
+                "ln -sf $HOME /tmp/home && rm -rf /tmp/home/.",
+                "ln-symlink-sensitive-then-delete",
+            ),
+            (
+                "rsync -a /etc/ /tmp/dest/ && rm -rf /tmp/dest",
+                "rsync-sensitive-then-delete",
+            ),
+            (
+                "rsync --archive /home/user/ /var/tmp/home/ && rm -f -r /var/tmp/home",
+                "rsync-sensitive-then-delete",
+            ),
+        ] {
+            assert_blocks_with_severity(&pack, cmd, Severity::Critical);
+            assert_blocks_with_pattern(&pack, cmd, pattern);
+        }
+    }
+
+    #[test]
+    fn sensitive_propagation_without_delete_is_allowed() {
+        let pack = create_pack();
+        for cmd in [
+            "cp -a /etc /tmp/x",
+            "cp --archive /etc/passwd /tmp/passwd",
+            "ln -s /etc /tmp/x",
+            "rsync -a /etc/ /tmp/dest/",
+        ] {
+            assert_no_match(&pack, cmd);
+        }
+    }
+
+    #[test]
+    fn non_sensitive_propagation_then_delete_is_allowed() {
+        let pack = create_pack();
+        for cmd in [
+            "cp -al /tmp/a /tmp/b && rm -rf /tmp/b",
+            "cp --archive ./build /tmp/build && rm -fr /tmp/build",
+            "ln -s /tmp/a /tmp/b && rm -rf /tmp/b/.",
+            "rsync -a ./target/ /tmp/target/ && rm -rf /tmp/target",
+        ] {
+            assert!(
+                pack.check(cmd).is_none(),
+                "non-sensitive temp propagation should be allowed: {cmd}",
+            );
+        }
+    }
+
+    #[test]
     fn mv_under_tmp_is_allowed() {
         let pack = create_pack();
         // All tmp-family moves are rescued by the explicit safe patterns
@@ -3168,6 +3378,16 @@ mod tests {
         assert_rm_parser_denies(
             r#"rm --force --recursive "${TMPDIR}/foo""#,
             RM_RECURSIVE_FORCE_NAME,
+            Severity::High,
+        );
+    }
+
+    #[test]
+    fn test_rm_parser_handles_compound_segments() {
+        assert_rm_parser_allows("cp -al /tmp/a /tmp/b && rm -rf /tmp/b");
+        assert_rm_parser_denies(
+            "echo ok && rm -rf ./build",
+            RM_RF_GENERAL_NAME,
             Severity::High,
         );
     }

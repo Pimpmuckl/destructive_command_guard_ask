@@ -551,6 +551,23 @@ impl Pack {
             })
     }
 
+    fn matches_destructive_named_by(
+        &self,
+        cmd: &str,
+        predicate: impl Fn(Option<&'static str>) -> bool,
+    ) -> Option<DestructiveMatch> {
+        self.destructive_patterns
+            .iter()
+            .filter(|p| predicate(p.name))
+            .find(|p| p.regex.is_match(cmd))
+            .map(|p| DestructiveMatch {
+                reason: p.reason,
+                name: p.name,
+                severity: p.severity,
+                explanation: p.explanation,
+            })
+    }
+
     /// Check a command against this pack.
     /// Returns Some(DestructiveMatch) if blocked, None if allowed.
     ///
@@ -580,6 +597,28 @@ impl Pack {
         // Quick reject if no keywords match
         if !self.might_match(cmd) {
             return None;
+        }
+
+        if self.id == "core.filesystem" {
+            if let Some(matched) = self.matches_destructive_named_by(
+                cmd,
+                crate::packs::core::filesystem::is_pre_rm_propagation_rule,
+            ) {
+                return Some(matched);
+            }
+
+            match crate::packs::core::filesystem::parse_rm_command(cmd) {
+                crate::packs::core::filesystem::RmParseDecision::Allow => return None,
+                crate::packs::core::filesystem::RmParseDecision::Deny(hit) => {
+                    return Some(DestructiveMatch {
+                        reason: hit.reason,
+                        name: Some(hit.pattern_name),
+                        severity: hit.severity,
+                        explanation: None,
+                    });
+                }
+                crate::packs::core::filesystem::RmParseDecision::NoMatch => {}
+            }
         }
 
         // Check safe patterns first (whitelist)
@@ -881,7 +920,7 @@ impl EnabledKeywordIndex {
 
 /// Static pack entries - metadata is available without instantiating packs.
 /// Packs are built lazily on first access.
-static PACK_ENTRIES: [PackEntry; 83] = [
+static PACK_ENTRIES: [PackEntry; 84] = [
     PackEntry::new("core.git", &["git"], core::git::create_pack),
     PackEntry::new(
         "core.filesystem",
@@ -924,6 +963,10 @@ static PACK_ENTRIES: [PackEntry; 83] = [
         // individually but the pair destroys /etc. The mv rule blocks
         // any mv whose source (or destination) is a sensitive path.
         //
+        // `cp`, `ln`, and `rsync` cover the first phase-1 propagation
+        // variants: sensitive source copied/symlinked/synced into a temp
+        // path, followed by a forced recursive temp deletion.
+        //
         // `>/`, `> /`, `>~`, `> ~`, `>$`, `> $`, `&>`, `>|`, `1>`, `2>`
         // are the Bash output-redirect quick-reject keywords for the
         // `redirect-truncate-root-home` rule — `> /etc/passwd` and its
@@ -951,6 +994,12 @@ static PACK_ENTRIES: [PackEntry; 83] = [
             "/dd",
             "mv",
             "/mv",
+            "cp",
+            "/cp",
+            "ln",
+            "/ln",
+            "rsync",
+            "/rsync",
             ">/",
             "> /",
             ">~",
@@ -1024,6 +1073,28 @@ static PACK_ENTRIES: [PackEntry; 83] = [
         "platform.gitlab",
         &["glab", "gitlab-rails", "gitlab-rake"],
         platform::gitlab::create_pack,
+    ),
+    PackEntry::new(
+        "platform.railway",
+        &[
+            "railway",
+            "backboard.railway.app",
+            "backboard.railway.com",
+            "railway.app/graphql",
+            "railway.com/graphql",
+            "projectDelete",
+            "projectScheduleDelete",
+            "environmentDelete",
+            "serviceDelete",
+            "volumeDelete",
+            "volumeInstanceDelete",
+            "volumeInstanceUpdate",
+            "variableDelete",
+            "variableCollectionUpsert",
+            "deploymentRemove",
+            "deploymentStop",
+        ],
+        platform::railway::create_pack,
     ),
     PackEntry::new(
         "dns.cloudflare",
@@ -1379,6 +1450,7 @@ static PACK_ENTRIES: [PackEntry; 83] = [
         &[
             "dd",
             "mkfs",
+            "mkswap",
             "fdisk",
             "parted",
             "wipefs",

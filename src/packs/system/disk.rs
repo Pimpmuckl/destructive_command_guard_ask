@@ -27,6 +27,7 @@ pub fn create_pack() -> Pack {
             "dd",
             "fdisk",
             "mkfs",
+            "mkswap",
             "parted",
             "mount",
             "wipefs",
@@ -73,6 +74,8 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         safe_pattern!("df", r"\bdf\b"),
         // mount (without arguments, just list)
         safe_pattern!("mount-list", r"\bmount\s*$"),
+        // mkswap --check (read-only inspection of swap area)
+        safe_pattern!("mkswap-check", r"mkswap\s+(?:.*\s+)?--check\b"),
         // --- mdadm safe patterns ---
         // mdadm --detail (read-only inspection)
         safe_pattern!("mdadm-detail", r"mdadm\s+--detail\b"),
@@ -199,6 +202,14 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
             "mkfs",
             r"mkfs(?:\.[a-z0-9]+)?\s+",
             "mkfs formats a partition/device and ERASES all existing data."
+        ),
+        // mkswap (format as swap area). Same blast radius as mkfs: overwrites
+        // any existing data on the target device. Shipped as its own rule
+        // because mkswap is a separate binary, not an mkfs.* variant.
+        destructive_pattern!(
+            "mkswap",
+            r"mkswap\s+",
+            "mkswap formats a partition as a swap area, ERASING any existing data."
         ),
         // wipefs
         destructive_pattern!(
@@ -504,5 +515,57 @@ mod tests {
         assert_no_match(&pack, "git status");
         assert_no_match(&pack, "echo hello");
         assert_no_match(&pack, "cargo build");
+    }
+
+    #[test]
+    fn mkswap_blocks_destructive_variants() {
+        let pack = create_pack();
+        let cases = [
+            "mkswap /dev/sdb",
+            "mkswap /dev/sda1",
+            "sudo mkswap /dev/sdb",
+            "mkswap -L swap1 /dev/sdb1",
+            "mkswap -U random /dev/nvme0n1p2",
+        ];
+        for cmd in cases {
+            let matched = pack
+                .check(cmd)
+                .unwrap_or_else(|| panic!("mkswap command must block: {cmd}"));
+            assert_eq!(matched.name, Some("mkswap"), "wrong rule for {cmd}");
+            assert_eq!(matched.severity, Severity::High);
+        }
+    }
+
+    #[test]
+    fn mkswap_check_and_unrelated_text_allowed() {
+        let pack = create_pack();
+        // --check is read-only inspection.
+        assert!(
+            pack.matches_safe("mkswap --check /dev/sdb"),
+            "mkswap --check must be safe"
+        );
+        assert!(
+            pack.matches_safe("mkswap -L swap1 --check /dev/sdb1"),
+            "mkswap with other flags + --check must be safe"
+        );
+        // Unrelated text mentioning mkswap (e.g. docs / paths). The pack regex
+        // requires `mkswap\s+` so a hyphenated/embedded mention does not match.
+        assert_no_match(&pack, "cat mkswap-readme.md");
+        assert_no_match(&pack, "ls /usr/share/doc/mkswap");
+        // Note: `echo mkswap is dangerous` matches at the raw-pack level
+        // because the regex sees `mkswap ` (the space is the second token
+        // separator). The evaluator's echo/printf args-data sanitize layer
+        // masks that text before pack evaluation, so the full pipeline still
+        // allows the command — exercised in
+        // scripts/e2e_destructive_equivalents.sh::scenario_system_disk_default.
+    }
+
+    #[test]
+    fn mkswap_keyword_reaches_pack() {
+        let pack = create_pack();
+        assert!(
+            pack.might_match("mkswap /dev/sdb"),
+            "mkswap must be in pack keywords or it will be filtered out before regex eval"
+        );
     }
 }

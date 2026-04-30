@@ -14,7 +14,7 @@ This document describes packs in the `system` category.
 
 **Pack ID:** `system.disk`
 
-Protects against destructive disk operations including dd to devices, mkfs, partition table modifications, RAID management (mdadm), btrfs filesystem operations, device-mapper (dmsetup), network block devices (nbd-client), and LVM commands.
+Protects against destructive disk operations like dd to devices, mkfs, partition table modifications, RAID management, btrfs/LVM/device-mapper operations, and network block devices
 
 ### Keywords
 
@@ -23,6 +23,7 @@ Commands containing these keywords are checked against this pack:
 - `dd`
 - `fdisk`
 - `mkfs`
+- `mkswap`
 - `parted`
 - `mount`
 - `wipefs`
@@ -43,39 +44,40 @@ Commands containing these keywords are checked against this pack:
 
 These patterns match safe commands that are always allowed:
 
-| Pattern Name | Pattern | Description |
-|--------------|----------|-------------|
-| `dd-file-out` | `dd\s+.*of=[^/\s]+\.` | dd to regular files |
-| `dd-discard` | `dd\s+.*of=/dev/(?:null\|zero\|full)(?:\s\|$)` | dd to /dev/null (discard output) |
-| `lsblk` | `\blsblk\b` | List block devices (read-only) |
-| `fdisk-list` | `fdisk\s+-l` | fdisk -l to list partitions |
-| `parted-print` | `parted\s+.*print` | parted print (read-only) |
-| `blkid` | `\bblkid\b` | Show filesystem UUIDs (read-only) |
-| `df` | `\bdf\b` | Show disk free space (read-only) |
-| `mount-list` | `\bmount\s*$` | List mounted filesystems |
-| `mdadm-detail` | `mdadm\s+--detail\b` | mdadm --detail (read-only inspection) |
-| `mdadm-examine` | `mdadm\s+--examine\b` | mdadm --examine (read-only superblock inspection) |
-| `mdadm-query` | `mdadm\s+--query\b` | mdadm --query (read-only query) |
-| `mdadm-query-short` | `mdadm\s+-Q\b` | mdadm -Q (short form of --query) |
-| `mdadm-scan` | `mdadm\s+--scan\b` | mdadm --scan (scan for arrays) |
-| `btrfs-subvolume-list` | `btrfs\s+subvolume\s+list\b` | btrfs subvolume list (read-only) |
-| `btrfs-subvolume-show` | `btrfs\s+subvolume\s+show\b` | btrfs subvolume show (read-only) |
-| `btrfs-filesystem-show` | `btrfs\s+filesystem\s+show\b` | btrfs filesystem show (read-only) |
-| `btrfs-filesystem-df` | `btrfs\s+filesystem\s+df\b` | btrfs filesystem df (read-only) |
-| `btrfs-filesystem-usage` | `btrfs\s+filesystem\s+usage\b` | btrfs filesystem usage (read-only) |
-| `btrfs-device-stats` | `btrfs\s+device\s+stats\b` | btrfs device stats (read-only) |
-| `btrfs-property-get` | `btrfs\s+property\s+(?:get\|list)\b` | btrfs property get/list (read-only) |
-| `btrfs-scrub-status` | `btrfs\s+scrub\s+status\b` | btrfs scrub status (read-only) |
-| `dmsetup-ls` | `dmsetup\s+ls\b` | dmsetup ls (list devices) |
-| `dmsetup-status` | `dmsetup\s+status\b` | dmsetup status (show status) |
-| `dmsetup-info` | `dmsetup\s+info\b` | dmsetup info (show info) |
-| `dmsetup-table` | `dmsetup\s+table\b` | dmsetup table (show mapping table) |
-| `dmsetup-deps` | `dmsetup\s+deps\b` | dmsetup deps (show dependencies) |
-| `nbd-client-list` | `nbd-client\s+-l\b` | nbd-client -l (list exports) |
-| `nbd-client-check` | `nbd-client\s+.*-check\b` | nbd-client -check (check connection) |
-| `lvm-list` | `\b(?:lvs\|vgs\|pvs)\b` | LVM list commands (read-only) |
-| `lvm-display` | `\b(?:lvdisplay\|vgdisplay\|pvdisplay)\b` | LVM display commands (read-only) |
-| `lvm-scan` | `\b(?:lvscan\|vgscan\|pvscan)\b` | LVM scan commands (read-only) |
+| Pattern Name | Pattern |
+|--------------|----------|
+| `dd-file-out` | `dd\s+.*of=['"]?[^/\s'"]+\.` |
+| `dd-discard` | `dd\s+.*of=['"]?/dev/(?:null\|zero\|full)['"]?(?:\s\|$)` |
+| `lsblk` | `\blsblk\b` |
+| `fdisk-list` | `fdisk\s+-l` |
+| `parted-print` | `parted\s+.*print` |
+| `blkid` | `\bblkid\b` |
+| `df` | `\bdf\b` |
+| `mount-list` | `\bmount\s*$` |
+| `mkswap-check` | `mkswap\s+(?:.*\s+)?--check\b` |
+| `mdadm-detail` | `mdadm\s+--detail\b` |
+| `mdadm-examine` | `mdadm\s+--examine\b` |
+| `mdadm-query` | `mdadm\s+--query\b` |
+| `mdadm-query-short` | `mdadm\s+-Q\b` |
+| `mdadm-scan` | `mdadm\s+--scan\b` |
+| `btrfs-subvolume-list` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+subvolume\s+list(?=\s\|$)` |
+| `btrfs-subvolume-show` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+subvolume\s+show(?=\s\|$)` |
+| `btrfs-filesystem-show` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+filesystem\s+show(?=\s\|$)` |
+| `btrfs-filesystem-df` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+filesystem\s+df(?=\s\|$)` |
+| `btrfs-filesystem-usage` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+filesystem\s+usage(?=\s\|$)` |
+| `btrfs-device-stats` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+device\s+stats(?=\s\|$)` |
+| `btrfs-property-get` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+property\s+(?:get\|list)(?=\s\|$)` |
+| `btrfs-scrub-status` | `btrfs\b(?:\s+--?\S+(?:\s+\S+)?)*\s+scrub\s+status(?=\s\|$)` |
+| `dmsetup-ls` | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+ls(?=\s\|$)` |
+| `dmsetup-status` | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+status(?=\s\|$)` |
+| `dmsetup-info` | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+info(?=\s\|$)` |
+| `dmsetup-table` | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+table(?=\s\|$)` |
+| `dmsetup-deps` | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deps(?=\s\|$)` |
+| `nbd-client-list` | `nbd-client\s+-l\b` |
+| `nbd-client-check` | `nbd-client\s+.*-check\b` |
+| `lvm-list` | `\b(?:lvs\|vgs\|pvs)\b` |
+| `lvm-display` | `\b(?:lvdisplay\|vgdisplay\|pvdisplay)\b` |
+| `lvm-scan` | `\b(?:lvscan\|vgscan\|pvscan)\b` |
 
 ### Destructive Patterns (Blocked)
 
@@ -88,6 +90,7 @@ These patterns match potentially destructive commands:
 | `fdisk-edit` | fdisk can modify partition tables and cause data loss. | high |
 | `parted-modify` | parted can modify partition tables and cause data loss. | high |
 | `mkfs` | mkfs formats a partition/device and ERASES all existing data. | high |
+| `mkswap` | mkswap formats a partition as a swap area, ERASING any existing data. | high |
 | `wipefs` | wipefs removes filesystem signatures. Use with extreme caution. | high |
 | `mount-bind-root` | mount --bind to root directory can have system-wide effects. | high |
 | `umount-force` | umount -f force unmounts which may cause data loss if device is in use. | high |
@@ -177,12 +180,12 @@ These patterns match potentially destructive commands:
 | Pattern Name | Reason | Severity |
 |--------------|--------|----------|
 | `chmod-777` | chmod 777 makes files world-writable. This is a security risk. | high |
-| `chmod-recursive-root` | chmod -R on system directories can break system permissions. | high |
+| `chmod-recursive-root` | chmod -R on system directories can break system permissions. | critical |
 | `chown-recursive-root` | chown -R on system directories can break system ownership. | high |
 | `chmod-setuid` | Setting setuid bit (chmod u+s) is a security-sensitive operation. | high |
 | `chmod-setgid` | Setting setgid bit (chmod g+s) is a security-sensitive operation. | high |
 | `chown-to-root` | Changing ownership to root should be done carefully. | high |
-| `setfacl-all` | setfacl -R on system directories can modify access control across the filesystem. | high |
+| `setfacl-all` | setfacl -R on system directories can modify access control across the filesystem. | critical |
 
 ### Allowlist Guidance
 
@@ -228,13 +231,13 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `systemctl-status` | `systemctl\s+status` |
-| `service-status` | `service\s+\S+\s+status` |
-| `systemctl-list` | `systemctl\s+list-(?:units\|unit-files\|sockets\|timers)` |
-| `systemctl-show` | `systemctl\s+show` |
-| `systemctl-is` | `systemctl\s+is-(?:active\|enabled\|failed)` |
-| `systemctl-reload` | `systemctl\s+daemon-reload` |
-| `systemctl-cat` | `systemctl\s+cat` |
+| `systemctl-status` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+status(?=\s\|$)` |
+| `service-status` | `service\s+\S+\s+status(?=\s\|$)` |
+| `systemctl-list` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+list-(?:units\|unit-files\|sockets\|timers)(?=\s\|$)` |
+| `systemctl-show` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+show(?=\s\|$)` |
+| `systemctl-is` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+is-(?:active\|enabled\|failed)(?=\s\|$)` |
+| `systemctl-reload` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+daemon-reload(?=\s\|$)` |
+| `systemctl-cat` | `systemctl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+cat(?=\s\|$)` |
 | `journalctl` | `\bjournalctl\b` |
 
 ### Destructive Patterns (Blocked)
@@ -247,10 +250,10 @@ These patterns match potentially destructive commands:
 | `systemctl-stop` | systemctl stop/disable/mask affects service availability. Verify service name. | high |
 | `service-stop-critical` | Stopping critical services can cause system access loss. | high |
 | `systemctl-isolate` | systemctl isolate changes the system state significantly. | high |
-| `systemctl-power` | systemctl poweroff/reboot/halt will shut down or restart the system. | high |
-| `shutdown` | shutdown will power off or restart the system. | high |
-| `reboot` | reboot will restart the system. | high |
-| `init-level` | init 0 shuts down, init 6 reboots the system. | high |
+| `systemctl-power` | systemctl poweroff/reboot/halt will shut down or restart the system. | critical |
+| `shutdown` | shutdown will power off or restart the system. | critical |
+| `reboot` | reboot will restart the system. | critical |
+| `init-level` | init 0 shuts down, init 6 reboots the system. | critical |
 
 ### Allowlist Guidance
 

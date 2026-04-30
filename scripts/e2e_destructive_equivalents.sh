@@ -743,6 +743,27 @@ scenario_mv_sensitive_bypass_var() {
 }
 
 # ---------------------------------------------------------------------------
+# sensitive-source propagation into temp then forced delete (git_safety_guard-33xf)
+# ---------------------------------------------------------------------------
+scenario_sensitive_propagation_then_delete() {
+    assert_blocked 'cp -al /etc /tmp/x && rm -rf /tmp/x'                         'core.filesystem:cp-sensitive-then-delete' 'critical'
+    assert_blocked 'cp --archive /etc/passwd /tmp/passwd && rm -fr /tmp/passwd'  'core.filesystem:cp-sensitive-then-delete' 'critical'
+    assert_blocked 'ln -s /etc /tmp/x && rm -rf /tmp/x/.'                        'core.filesystem:ln-symlink-sensitive-then-delete' 'critical'
+    assert_blocked 'ln -sf $HOME /tmp/home && rm -rf /tmp/home/.'                'core.filesystem:ln-symlink-sensitive-then-delete' 'critical'
+    assert_blocked 'rsync -a /etc/ /tmp/dest/ && rm -rf /tmp/dest'               'core.filesystem:rsync-sensitive-then-delete' 'critical'
+    assert_blocked 'rsync --archive /home/user/ /var/tmp/home/ && rm -f -r /var/tmp/home' 'core.filesystem:rsync-sensitive-then-delete' 'critical'
+}
+
+scenario_sensitive_propagation_no_false_positive() {
+    assert_allowed 'cp -a /etc /tmp/x'
+    assert_allowed 'ln -s /etc /tmp/x'
+    assert_allowed 'rsync -a /etc/ /tmp/dest/'
+    assert_allowed 'cp -al /tmp/a /tmp/b && rm -rf /tmp/b'
+    assert_allowed 'ln -s /tmp/a /tmp/b && rm -rf /tmp/b/.'
+    assert_allowed 'rsync -a ./target/ /tmp/target/ && rm -rf /tmp/target'
+}
+
+# ---------------------------------------------------------------------------
 # system.disk default-on (git_safety_guard-nqhi.8)
 # ---------------------------------------------------------------------------
 # Verifies that on a default-config invocation (no DCG_PACKS, no
@@ -757,9 +778,16 @@ scenario_system_disk_default() {
     # mkfs variants (mkfs / mkfs.ext4 / mkfs.xfs).
     assert_blocked 'mkfs.ext4 /dev/sda1'           'system.disk:mkfs'        'high'
     assert_blocked 'mkfs.xfs /dev/sdb'             'system.disk:mkfs'        'high'
-    # NOTE: `mkswap` is NOT yet covered by the system.disk pack — see
-    # follow-up bead. Keeping the assertion out for now so this scenario
-    # accurately reflects current-default coverage.
+    # mkswap (separate binary; same blast radius as mkfs).
+    assert_blocked 'mkswap /dev/sdb'               'system.disk:mkswap'      'high'
+    assert_blocked 'mkswap /dev/sda1'              'system.disk:mkswap'      'high'
+    assert_blocked 'sudo mkswap /dev/sdb'          'system.disk:mkswap'      'high'
+    # mkswap --check is read-only inspection.
+    assert_allowed 'mkswap --check /dev/sdb'
+    assert_allowed 'mkswap -L tag --check /dev/sdb1'
+    # Unrelated text mentioning the binary name must not false-positive.
+    assert_allowed 'cat mkswap-readme.md'
+    assert_allowed 'echo mkswap is dangerous'
     # fdisk / parted (partition editing).
     assert_blocked 'fdisk /dev/sda'                'system.disk:fdisk-edit'  'high'
     assert_blocked 'parted /dev/sda mklabel gpt'   'system.disk:parted-modify' 'high'
@@ -994,6 +1022,8 @@ run_all() {
         scenario_mv_no_false_positive \
         scenario_mv_bypass_attempts \
         scenario_mv_sensitive_bypass_var \
+        scenario_sensitive_propagation_then_delete \
+        scenario_sensitive_propagation_no_false_positive \
         scenario_system_disk_default; do
         if declare -F "$scenario" >/dev/null 2>&1; then
             run_scenario "$scenario"

@@ -18,7 +18,7 @@ rule_id = "core.filesystem:rm-rf-root-home"
 description = "rm -rf with home expansion"
 command = "rm -rf $HOME"
 expected = "deny"
-rule_id = "core.filesystem:rm-rf-general"
+rule_id = "core.filesystem:rm-rf-root-home"
 
 [[case]]
 description = "rm -rf with glob"
@@ -42,13 +42,10 @@ rule_id = "core.filesystem:rm-rf-general"
 description = "rm --recursive --force outside temp is blocked"
 command = "rm --recursive --force /etc"
 expected = "deny"
-rule_id = "core.filesystem:rm-recursive-force-long"
+rule_id = "core.filesystem:rm-recursive-force-root-home"
 
-# NOTE: rm -r -f (separated flags) is not currently detected.
-# The pattern expects -rf or -fr combined. This is a gap.
-# Tracked in: tests/corpus/README.md (future enhancement)
-# [[case]]
-# description = "rm with recursive and force flags separate"
-# command = "rm -r -f /tmp/test"
-# expected = "deny"
-# rule_id = "core.rm:recursive-force"
+[[case]]
+description = "rm with recursive and force flags separate"
+command = "rm -r -f ./build"
+expected = "deny"
+rule_id = "core.filesystem:rm-r-f-separate"
