@@ -2312,6 +2312,50 @@ fn should_fallback_to_full_normalized_keyword_scan(normalized: &str) -> bool {
     // append, and no rule currently keys on read redirects (cost is one
     // extra AC pass that returns no matches — negligible).
     normalized.bytes().any(|byte| matches!(byte, b'>' | b'<'))
+        || contains_shell_pipeline_operator(normalized)
+}
+
+#[inline]
+fn contains_shell_pipeline_operator(command: &str) -> bool {
+    let bytes = command.as_bytes();
+    let mut i = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        if b == b'\\' && !in_single && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if b == b'\'' && !in_double {
+            in_single = !in_single;
+            i += 1;
+            continue;
+        }
+        if b == b'"' && !in_single {
+            in_double = !in_double;
+            i += 1;
+            continue;
+        }
+        if in_single || in_double {
+            i += 1;
+            continue;
+        }
+
+        if b == b'|' {
+            if bytes.get(i + 1) == Some(&b'|') {
+                i += 2;
+                continue;
+            }
+            return true;
+        }
+
+        i += 1;
+    }
+
+    false
 }
 
 /// Pack-aware quick-reject filter.
@@ -2575,6 +2619,24 @@ mod tests {
         assert!(
             !pack_aware_quick_reject(r#""git">/dev/null reset --hard"#, &keywords),
             "quoted command words with attached redirections must still trigger pack evaluation"
+        );
+    }
+
+    #[test]
+    fn pack_aware_quick_reject_does_not_skip_piped_code_payload() {
+        let keywords: Vec<&str> = vec!["rm"];
+
+        assert!(
+            !pack_aware_quick_reject("echo rm -rf / | sh", &keywords),
+            "pipeline payloads must still trigger pack evaluation"
+        );
+        assert!(
+            !pack_aware_quick_reject("echo rm -rf / |& sh", &keywords),
+            "stderr-merged pipeline payloads must still trigger pack evaluation"
+        );
+        assert!(
+            pack_aware_quick_reject(r#"echo "rm -rf / | sh""#, &keywords),
+            "quoted pipe characters are data"
         );
     }
 
