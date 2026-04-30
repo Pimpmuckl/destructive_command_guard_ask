@@ -26,10 +26,7 @@ pub fn create_pack() -> Pack {
 
 fn create_safe_patterns() -> Vec<SafePattern> {
     vec![
-        safe_pattern!(
-            "dns-dig-safe",
-            r"\bdig\b(?!.*(?i:\b(?:axfr|ixfr)\b))"
-        ),
+        safe_pattern!("dns-dig-safe", r"\bdig\b(?!.*(?i:\b(?:axfr|ixfr)\b))"),
         safe_pattern!("dns-host-safe", r"\bhost\b"),
         safe_pattern!("dns-nslookup-safe", r"\bnslookup\b"),
     ]
