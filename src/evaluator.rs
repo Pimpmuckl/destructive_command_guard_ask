@@ -1831,6 +1831,8 @@ fn evaluate_packs_with_allowlists(
 
     let normalized_offset = compute_normalized_offset(command_for_match, normalized);
     let original_len = original_command.len();
+    let segment_ranges = command_segment_ranges(command_for_packs);
+    let has_compound_segments = segment_ranges.len() > 1;
 
     // Single-pass per-pack evaluation: safe patterns only protect their own pack's
     // destructive patterns, not other packs. This prevents compound command bypass
@@ -1946,8 +1948,36 @@ fn evaluate_packs_with_allowlists(
                 }
             }
         } else {
-            // Non-core.filesystem packs: check safe patterns before destructive
-            if pack.matches_safe_with_deadline(command_for_packs, deadline) {
+            if has_compound_segments {
+                for &(segment_start, segment_end) in &segment_ranges {
+                    if deadline_exceeded(deadline)
+                        || remaining_below(deadline, &crate::perf::PATTERN_MATCH)
+                    {
+                        return EvaluationResult::allowed_due_to_budget();
+                    }
+
+                    let segment = &command_for_packs[segment_start..segment_end];
+                    if pack.matches_safe_with_deadline(segment, deadline) {
+                        continue;
+                    }
+
+                    if let Some(result) = evaluate_pack_destructive_patterns(
+                        pack_id,
+                        pack,
+                        segment,
+                        segment_start,
+                        original_command,
+                        normalized_offset,
+                        original_len,
+                        allowlists,
+                        project_path,
+                        &mut first_allowlist_hit,
+                        deadline,
+                    ) {
+                        return result;
+                    }
+                }
+            } else if pack.matches_safe_with_deadline(command_for_packs, deadline) {
                 continue; // Safe pattern match - skip this pack's destructive patterns
             }
         }
@@ -1973,6 +2003,10 @@ fn evaluate_packs_with_allowlists(
             let Some(span) = matched_span else {
                 continue;
             };
+
+            if has_compound_segments && span_is_inside_any_segment(span, &segment_ranges) {
+                continue;
+            }
 
             let reason = pattern.reason;
             let mapped_span = map_span_with_offset(span, normalized_offset, original_len);
@@ -2050,6 +2084,130 @@ fn evaluate_packs_with_allowlists(
     }
 
     EvaluationResult::allowed()
+}
+
+fn command_segment_ranges(cmd: &str) -> Vec<(usize, usize)> {
+    crate::packs::split_command_segments(cmd)
+        .into_iter()
+        .map(|segment| {
+            let start = segment.as_ptr() as usize - cmd.as_ptr() as usize;
+            (start, start + segment.len())
+        })
+        .collect()
+}
+
+fn span_is_inside_any_segment(span: MatchSpan, segment_ranges: &[(usize, usize)]) -> bool {
+    segment_ranges
+        .iter()
+        .any(|&(start, end)| span.start >= start && span.end <= end)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_pack_destructive_patterns(
+    pack_id: &str,
+    pack: &crate::packs::Pack,
+    command_slice: &str,
+    slice_offset: usize,
+    original_command: &str,
+    normalized_offset: Option<usize>,
+    original_len: usize,
+    allowlists: &LayeredAllowlist,
+    project_path: Option<&Path>,
+    first_allowlist_hit: &mut Option<(PatternMatch, AllowlistLayer, String)>,
+    deadline: Option<&Deadline>,
+) -> Option<EvaluationResult> {
+    for pattern in &pack.destructive_patterns {
+        if deadline_exceeded(deadline) || remaining_below(deadline, &crate::perf::PATTERN_MATCH) {
+            return Some(EvaluationResult::allowed_due_to_budget());
+        }
+
+        let matched_span = pattern.regex.find(command_slice).map(|(start, end)| MatchSpan {
+            start: start + slice_offset,
+            end: end + slice_offset,
+        });
+
+        if deadline_exceeded(deadline) {
+            return Some(EvaluationResult::allowed_due_to_budget());
+        }
+
+        let Some(span) = matched_span else {
+            continue;
+        };
+
+        let reason = pattern.reason;
+        let mapped_span = map_span_with_offset(span, normalized_offset, original_len);
+        let slice_span = MatchSpan {
+            start: span.start.saturating_sub(slice_offset),
+            end: span.end.saturating_sub(slice_offset),
+        };
+        let preview = mapped_span
+            .as_ref()
+            .map(|span| extract_match_preview(original_command, span))
+            .or_else(|| Some(extract_match_preview(command_slice, &slice_span)));
+
+        if let Some(pattern_name) = pattern.name {
+            if let Some(hit) = allowlists.match_rule_at_path(pack_id, pattern_name, project_path) {
+                if first_allowlist_hit.is_none() {
+                    *first_allowlist_hit = Some((
+                        PatternMatch {
+                            pack_id: Some(pack_id.to_string()),
+                            pattern_name: Some(pattern_name.to_string()),
+                            severity: Some(pattern.severity),
+                            reason: reason.to_string(),
+                            source: MatchSource::Pack,
+                            matched_span: mapped_span,
+                            matched_text_preview: preview,
+                            explanation: pattern.explanation.map(str::to_string),
+                            suggestions: pattern.suggestions,
+                        },
+                        hit.layer,
+                        hit.entry.reason.clone(),
+                    ));
+                }
+                continue;
+            }
+
+            if let Some(mapped_span) = mapped_span {
+                return Some(EvaluationResult::denied_by_pack_pattern_with_span(
+                    pack_id,
+                    pattern_name,
+                    reason,
+                    pattern.explanation,
+                    pattern.severity,
+                    pattern.suggestions,
+                    original_command,
+                    mapped_span,
+                ));
+            }
+
+            return Some(EvaluationResult::denied_by_pack_pattern(
+                pack_id,
+                pattern_name,
+                reason,
+                pattern.explanation,
+                pattern.severity,
+                pattern.suggestions,
+            ));
+        }
+
+        if let Some(mapped_span) = mapped_span {
+            return Some(EvaluationResult::denied_by_pack_with_span(
+                pack_id,
+                reason,
+                pattern.explanation,
+                original_command,
+                mapped_span,
+            ));
+        }
+
+        return Some(EvaluationResult::denied_by_pack(
+            pack_id,
+            reason,
+            pattern.explanation,
+        ));
+    }
+
+    None
 }
 
 /// Evaluate a command with legacy pattern support using precompiled overrides.
@@ -2958,6 +3116,27 @@ mod tests {
         LayeredAllowlist::default()
     }
 
+    fn evaluate_with_pack_ids(command: &str, pack_ids: &[&str]) -> EvaluationResult {
+        let enabled_packs: std::collections::HashSet<String> =
+            pack_ids.iter().map(|id| (*id).to_string()).collect();
+        let ordered_packs = crate::packs::REGISTRY.expand_enabled_ordered(&enabled_packs);
+        let keyword_index = crate::packs::REGISTRY.build_enabled_keyword_index(&ordered_packs);
+        let enabled_keywords = crate::packs::REGISTRY.collect_enabled_keywords(&enabled_packs);
+        let compiled = default_compiled_overrides();
+        let allowlists = default_allowlists();
+        let heredoc_settings = default_config().heredoc_settings();
+
+        evaluate_command_with_pack_order(
+            command,
+            enabled_keywords.as_slice(),
+            ordered_packs.as_slice(),
+            keyword_index.as_ref(),
+            &compiled,
+            &allowlists,
+            &heredoc_settings,
+        )
+    }
+
     fn project_allowlists_for_rule(rule: &str, reason: &str) -> LayeredAllowlist {
         let rule = RuleId::parse(rule).expect("rule id must parse");
         LayeredAllowlist {
@@ -3034,6 +3213,45 @@ mod tests {
         let allowlists = default_allowlists();
         let result = evaluate_command("ls -la", &config, &["git", "rm"], &compiled, &allowlists);
         assert!(result.is_allowed());
+    }
+
+    #[test]
+    fn non_core_safe_segment_does_not_mask_later_destructive_segment() {
+        let result = evaluate_with_pack_ids(
+            "railway service list && railway volume delete --volume prod-db --yes",
+            &["platform.railway"],
+        );
+
+        assert!(result.is_denied(), "Railway volume delete must be blocked");
+        let info = result.pattern_info.expect("denial should include pattern info");
+        assert_eq!(info.pack_id.as_deref(), Some("platform.railway"));
+        assert_eq!(info.pattern_name.as_deref(), Some("railway-volume-delete"));
+    }
+
+    #[test]
+    fn non_core_safe_segment_does_not_mask_earlier_destructive_segment() {
+        let result = evaluate_with_pack_ids(
+            "railway volume delete --volume prod-db --yes && railway service list",
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_denied(),
+            "Railway volume delete must be blocked before a safe segment"
+        );
+        let info = result.pattern_info.expect("denial should include pattern info");
+        assert_eq!(info.pack_id.as_deref(), Some("platform.railway"));
+        assert_eq!(info.pattern_name.as_deref(), Some("railway-volume-delete"));
+    }
+
+    #[test]
+    fn non_core_safe_segments_remain_allowed() {
+        let result = evaluate_with_pack_ids(
+            "railway service list && railway volume list --json",
+            &["platform.railway"],
+        );
+
+        assert!(result.is_allowed(), "read-only Railway segments should pass");
     }
 
     #[test]
