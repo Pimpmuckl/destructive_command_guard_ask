@@ -2159,8 +2159,15 @@ fn should_check_original_control_plane_payload(
     // strings such as `echo 'projectDelete RAILWAY_API_TOKEN'` masked.
     command_for_packs != original_command
         && matches!(pack_id, "platform.railway")
-        && command_for_packs.contains("curl")
+        && command_contains_curl_invocation(command_for_packs)
         && original_command_contains_railway_api_signal(original_command)
+}
+
+fn command_contains_curl_invocation(command: &str) -> bool {
+    command
+        .split(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')'))
+        .map(|token| token.trim_matches(['"', '\'']))
+        .any(|token| token == "curl" || token.ends_with("/curl"))
 }
 
 fn should_check_original_control_plane_payload_for_any_pack(
@@ -2168,15 +2175,9 @@ fn should_check_original_control_plane_payload_for_any_pack(
     original_command: &str,
     ordered_packs: &[String],
 ) -> bool {
-    ordered_packs
-        .iter()
-        .any(|pack_id| {
-            should_check_original_control_plane_payload(
-                pack_id,
-                command_for_packs,
-                original_command,
-            )
-        })
+    ordered_packs.iter().any(|pack_id| {
+        should_check_original_control_plane_payload(pack_id, command_for_packs, original_command)
+    })
 }
 
 fn original_command_contains_railway_api_signal(command: &str) -> bool {
@@ -3399,13 +3400,26 @@ mod tests {
     #[test]
     fn masked_non_curl_documentation_stays_allowed_for_railway_api_terms() {
         let result = evaluate_with_pack_ids(
-            r#"echo 'projectDelete with RAILWAY_API_TOKEN belongs in docs'"#,
+            r"echo 'projectDelete with RAILWAY_API_TOKEN belongs in docs'",
             &["platform.railway"],
         );
 
         assert!(
             result.is_allowed(),
             "masked documentation text should not activate Railway API inspection"
+        );
+    }
+
+    #[test]
+    fn masked_non_curl_command_name_stays_allowed_for_railway_api_terms() {
+        let result = evaluate_with_pack_ids(
+            r#"curlgrep -H "Authorization: Bearer $RAILWAY_API_TOKEN" --data-binary '{"query":"mutation { projectDelete(id:\"p\") }"}'"#,
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_allowed(),
+            "non-curl command names should not activate Railway API inspection"
         );
     }
 
