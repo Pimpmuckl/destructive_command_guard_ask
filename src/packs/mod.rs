@@ -2397,10 +2397,7 @@ pub fn split_command_segments(cmd: &str) -> Vec<&str> {
         } else if b == b'&' {
             Some(usize::from(bytes.get(i + 1) == Some(&b'&')) + 1)
         } else if b == b'|' {
-            Some(
-                usize::from(matches!(bytes.get(i + 1), Some(&b'|') | Some(&b'&')))
-                    + 1,
-            )
+            Some(usize::from(matches!(bytes.get(i + 1), Some(&b'|') | Some(&b'&'))) + 1)
         } else {
             None
         };
