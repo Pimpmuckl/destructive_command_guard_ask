@@ -208,7 +208,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-database-variable-set",
-            r"railway(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:variable|variables|vars|var)\s+(?:set|upsert)(?:\s|.)*(?:DATABASE_URL|DATABASE_PRIVATE_URL|RAILWAY_DATABASE_URL|PGHOST|POSTGRES_HOST|MYSQL_URL|REDIS_URL|MONGO_URL|MONGODB_URI)(?:\s|=|$)",
+            r"railway(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:variable|variables|vars|var)\s+(?:set|upsert)(?:\s|.)*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)(?:\s|=|$)",
             "railway variable set is changing a database connection variable.",
             High,
             "Overwriting database connection variables can redirect production traffic or disconnect an app from its production database.",
@@ -216,7 +216,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-database-variable-legacy-set",
-            r"railway(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:variable|variables|vars|var)(?:\s+--?\S+(?:\s+\S+)?)*(?:\s+--set(?:=|\s+)|\s+--set-from-stdin(?:=|\s+))(?:DATABASE_URL|DATABASE_PRIVATE_URL|RAILWAY_DATABASE_URL|PGHOST|POSTGRES_HOST|MYSQL_URL|REDIS_URL|MONGO_URL|MONGODB_URI)(?:\s|=|$)",
+            r"railway(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:variable|variables|vars|var)(?:\s+--?\S+(?:\s+\S+)?)*(?:\s+--set(?:=|\s+)|\s+--set-from-stdin(?:=|\s+))(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)(?:\s|=|$)",
             "railway variable legacy flags are changing a database connection variable.",
             High,
             "Legacy Railway variable flags can still overwrite database connection variables and break production database access.",
@@ -280,7 +280,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-database-variable-upsert",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*variableCollectionUpsert.*(?:DATABASE_URL|DATABASE_PRIVATE_URL|RAILWAY_DATABASE_URL|PGHOST|POSTGRES_HOST|MYSQL_URL|REDIS_URL|MONGO_URL|MONGODB_URI)|variableCollectionUpsert.*(?:DATABASE_URL|DATABASE_PRIVATE_URL|RAILWAY_DATABASE_URL|PGHOST|POSTGRES_HOST|MYSQL_URL|REDIS_URL|MONGO_URL|MONGODB_URI).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*variableCollectionUpsert.*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)|variableCollectionUpsert.*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API upsert is changing a database connection variable.",
             High,
             "Bulk-upserting Railway variables that include database connection keys can redirect or sever production database access.",
@@ -375,7 +375,31 @@ mod tests {
                 "railway-database-variable-set",
             ),
             (
+                "railway variable set --service api DATABASE_PUBLIC_URL=postgres://prod",
+                "railway-database-variable-set",
+            ),
+            (
+                "railway variable set PGHOST=prod-postgres.railway.internal",
+                "railway-database-variable-set",
+            ),
+            (
+                "railway vars set REDIS_PUBLIC_URL=redis://prod",
+                "railway-database-variable-set",
+            ),
+            (
+                "railway var set MYSQLHOST=mysql.railway.internal",
+                "railway-database-variable-set",
+            ),
+            (
+                "railway variables set MONGOPASSWORD=secret",
+                "railway-database-variable-set",
+            ),
+            (
                 "railway variables --set DATABASE_URL=postgres://prod",
+                "railway-database-variable-legacy-set",
+            ),
+            (
+                "railway variables --set REDIS_PUBLIC_URL=redis://prod",
                 "railway-database-variable-legacy-set",
             ),
             (
@@ -432,6 +456,14 @@ mod tests {
             ),
             (
                 r#"curl https://backboard.railway.app/graphql/v2 -d '{"query":"mutation { variableCollectionUpsert(input:{variables:[{name:\"DATABASE_URL\", value:\"postgres://prod\"}]}) }"}'"#,
+                "railway-api-database-variable-upsert",
+            ),
+            (
+                r#"curl "$RAILWAY_API_URL" -d '{"query":"mutation { variableCollectionUpsert(input:{variables:[{name:\"DATABASE_PUBLIC_URL\", value:\"postgres://prod\"}]}) }"}'"#,
+                "railway-api-database-variable-upsert",
+            ),
+            (
+                r#"curl https://backboard.railway.app/graphql/v2 -d '{"query":"mutation { variableCollectionUpsert(input:{variables:[{name:\"REDIS_PUBLIC_URL\", value:\"redis://prod\"}]}) }"}'"#,
                 "railway-api-database-variable-upsert",
             ),
             (
