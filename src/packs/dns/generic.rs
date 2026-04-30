@@ -26,7 +26,10 @@ pub fn create_pack() -> Pack {
 
 fn create_safe_patterns() -> Vec<SafePattern> {
     vec![
-        safe_pattern!("dns-dig-safe", r"\bdig\b(?!.*\baxfr\b)(?!.*\bixfr\b)"),
+        safe_pattern!(
+            "dns-dig-safe",
+            r"\bdig\b(?!.*(?i:\b(?:axfr|ixfr)\b))"
+        ),
         safe_pattern!("dns-host-safe", r"\bhost\b"),
         safe_pattern!("dns-nslookup-safe", r"\bnslookup\b"),
     ]
@@ -63,7 +66,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "dns-dig-zone-transfer",
-            r"\bdig\b.*\b(?:axfr|ixfr)\b",
+            r"(?i:\bdig\b.*\b(?:axfr|ixfr)\b)",
             "dig AXFR/IXFR zone transfers can exfiltrate full zone data.",
             Medium,
             "Zone transfers (AXFR/IXFR) download complete DNS zone data, revealing all \
@@ -119,6 +122,7 @@ mod tests {
         );
         assert_blocks_with_pattern(&pack, "nsupdate -l", "dns-nsupdate-local");
         assert_blocks_with_pattern(&pack, "dig axfr example.com", "dns-dig-zone-transfer");
+        assert_blocks_with_pattern(&pack, "dig AXFR example.com", "dns-dig-zone-transfer");
     }
 
     #[test]
@@ -151,7 +155,17 @@ mod tests {
         );
         assert_blocks(
             &pack,
+            "dig AXFR example.com",
+            "dig AXFR/IXFR zone transfers can exfiltrate full zone data",
+        );
+        assert_blocks(
+            &pack,
             "dig ixfr=12345 example.com",
+            "dig AXFR/IXFR zone transfers can exfiltrate full zone data",
+        );
+        assert_blocks(
+            &pack,
+            "dig IXFR=12345 example.com",
             "dig AXFR/IXFR zone transfers can exfiltrate full zone data",
         );
     }
@@ -162,6 +176,7 @@ mod tests {
         assert_blocks_with_severity(&pack, "nsupdate delete example.com A", Severity::High);
         assert_blocks_with_severity(&pack, "nsupdate -l", Severity::Medium);
         assert_blocks_with_severity(&pack, "dig axfr example.com", Severity::Medium);
+        assert_blocks_with_severity(&pack, "dig AXFR example.com", Severity::Medium);
     }
 
     #[test]
