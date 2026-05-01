@@ -678,13 +678,14 @@ fn memory_codex_subprocess_deny_loop() {
     let codex_payload = sample_codex_input("git reset --hard HEAD~3");
     let iterations = 50;
     let warmup_iterations = 5;
+    let home_dir = tempfile::TempDir::new().expect("create isolated HOME for dcg subprocesses");
 
     println!(
         "memory_codex_subprocess_deny_loop: warming up ({} subprocesses)",
         warmup_iterations
     );
     for _ in 0..warmup_iterations {
-        run_codex_deny_subprocess(&dcg_bin, &codex_payload);
+        run_codex_deny_subprocess(&dcg_bin, &codex_payload, home_dir.path());
     }
 
     let Some(baseline) = get_memory_usage() else {
@@ -699,7 +700,7 @@ fn memory_codex_subprocess_deny_loop() {
     );
 
     for i in 0..iterations {
-        run_codex_deny_subprocess(&dcg_bin, &codex_payload);
+        run_codex_deny_subprocess(&dcg_bin, &codex_payload, home_dir.path());
 
         if i > 0 && i % 10 == 0 {
             if let Some(current) = get_memory_usage() {
@@ -736,10 +737,14 @@ fn memory_codex_subprocess_deny_loop() {
     println!("memory_codex_subprocess_deny_loop: PASSED");
 }
 
-fn run_codex_deny_subprocess(dcg_bin: &std::path::Path, codex_payload: &str) {
+fn run_codex_deny_subprocess(
+    dcg_bin: &std::path::Path,
+    codex_payload: &str,
+    home_dir: &std::path::Path,
+) {
     let mut child = std::process::Command::new(dcg_bin)
         .env_clear()
-        .env("HOME", "/tmp/dcg_memtest_home")
+        .env("HOME", home_dir)
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("NO_COLOR", "1")
         .stdin(std::process::Stdio::piped())
@@ -754,7 +759,13 @@ fn run_codex_deny_subprocess(dcg_bin: &std::path::Path, codex_payload: &str) {
     }
 
     let output = child.wait_with_output().expect("wait dcg");
-    debug_assert_eq!(output.status.code(), Some(2), "Codex deny should exit 2");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Codex deny should exit 2\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
