@@ -109,10 +109,21 @@ pub fn backup_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("dcg").join("backups"))
 }
 
+fn is_valid_backup_artifact_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+}
+
 fn backup_artifact_name(entry: &BackupEntry) -> String {
     entry
         .artifact_name
-        .clone()
+        .as_deref()
+        .filter(|name| is_valid_backup_artifact_name(name))
+        .map(str::to_string)
         .unwrap_or_else(|| format!("dcg-{}-{}", entry.version, entry.created_at))
 }
 
@@ -983,6 +994,29 @@ mod tests {
             original_path: std::path::PathBuf::from("/usr/local/bin/dcg"),
         };
         assert_eq!(backup_artifact_name(&legacy), "dcg-0.2.11-1737100000");
+    }
+
+    #[test]
+    fn test_backup_artifact_name_rejects_path_like_metadata() {
+        let fallback = "dcg-0.2.12-1737200000";
+        for artifact_name in [
+            "",
+            ".",
+            "..",
+            "../outside",
+            "/tmp/dcg-backup",
+            "nested/dcg-backup",
+            r"nested\dcg-backup",
+            "C:dcg-backup",
+        ] {
+            let entry = BackupEntry {
+                version: "0.2.12".to_string(),
+                created_at: 1_737_200_000,
+                artifact_name: Some(artifact_name.to_string()),
+                original_path: std::path::PathBuf::from("/usr/local/bin/dcg"),
+            };
+            assert_eq!(backup_artifact_name(&entry), fallback);
+        }
     }
 
     fn backup_entry(version: &str, created_at: u64) -> BackupEntry {
