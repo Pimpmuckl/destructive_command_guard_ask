@@ -768,6 +768,18 @@ fn cli_version_and_help_emit_human_output() {
         assert_eq!(help.exit_code, 0, "--help should exit 0");
         assert_empty(log, "--help stdout", &help.stdout);
         assert_contains(log, "--help stderr", &help.stderr, "USAGE");
+        assert_contains(
+            log,
+            "--help stderr multi-agent",
+            &help.stderr,
+            "Claude Code, Codex CLI",
+        );
+        assert_contains(
+            log,
+            "--help stderr codex contract",
+            &help.stderr,
+            "Codex denials use stderr + exit 2",
+        );
         assert_contains(log, "--help stderr command", &help.stderr, "COMMANDS");
     });
 }

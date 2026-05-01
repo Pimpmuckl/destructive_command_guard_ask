@@ -794,24 +794,26 @@ fn print_help() {
     eprintln!("  🛡  {} {}", "dcg".green().bold(), PKG_VERSION.cyan());
     eprintln!(
         "     {}",
-        "Destructive Command Guard - A Claude Code safety hook".bright_black()
+        "Destructive Command Guard - multi-agent safety hook".bright_black()
     );
     eprintln!();
 
     // Usage section
     eprintln!("  {}", "USAGE".yellow().bold());
     eprintln!("  {}", "─".repeat(50).bright_black());
-    eprintln!(
-        "    This tool runs as a Claude Code {} hook.",
-        "PreToolUse".cyan()
-    );
-    eprintln!("    It reads JSON from stdin and outputs JSON to stdout.");
+    eprintln!("    Runs as a pre-execution shell hook for Claude Code, Codex CLI,");
+    eprintln!("    Gemini CLI, GitHub Copilot CLI, and Cursor IDE.");
+    eprintln!("    Compatible agents receive stdout JSON; Codex denials use stderr + exit 2.");
     eprintln!();
 
     // Configuration section
     eprintln!("  {}", "CONFIGURATION".yellow().bold());
     eprintln!("  {}", "─".repeat(50).bright_black());
-    eprintln!("    Add to {}:", "~/.claude/settings.json".cyan());
+    eprintln!("    Installers configure supported agent hooks automatically.");
+    eprintln!(
+        "    Common Claude Code config in {}:",
+        "~/.claude/settings.json".cyan()
+    );
     eprintln!();
     eprintln!(
         "    {}",
