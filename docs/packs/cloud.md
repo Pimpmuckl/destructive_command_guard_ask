@@ -253,7 +253,8 @@ These patterns match safe commands that are always allowed:
 | `az-login` | `az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+login(?=\s\|$)` |
 | `az-version` | `az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+version(?=\s\|$)` |
 | `az-help` | `az\b.*--help` |
-| `az-what-if` | `az\b.*--what-if` |
+| `az-deployment-what-if` | `az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deployment\s+(?:group\|sub\|mg\|tenant)\s+what-if(?:\s\|$)` |
+| `az-deployment-create-what-if` | `az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deployment\s+(?:group\|sub\|mg\|tenant)\s+create(?:\s\|$)[^\n;&\|]*\s--what-if(?:\s\|$)` |
 
 ### Destructive Patterns (Blocked)
 

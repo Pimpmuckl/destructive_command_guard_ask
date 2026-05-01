@@ -74,8 +74,17 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         ),
         // az --help is safe
         safe_pattern!("az-help", r"az\b.*--help"),
-        // what-if is safe (preview)
-        safe_pattern!("az-what-if", r"az\b.*--what-if"),
+        // Azure What-If is a deployment feature, not a universal delete
+        // preview flag. Keep it scoped to documented deployment commands so
+        // unsupported `--what-if` text cannot bypass destructive `az ... delete`.
+        safe_pattern!(
+            "az-deployment-what-if",
+            r"az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deployment\s+(?:group|sub|mg|tenant)\s+what-if(?:\s|$)"
+        ),
+        safe_pattern!(
+            "az-deployment-create-what-if",
+            r"az\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deployment\s+(?:group|sub|mg|tenant)\s+create(?:\s|$)[^\n;&|]*\s--what-if(?:\s|$)"
+        ),
     ]
 }
 
@@ -497,6 +506,40 @@ mod tests {
     }
 
     #[test]
+    fn azure_what_if_safe_patterns_only_cover_deployment_previews() {
+        let pack = create_pack();
+
+        assert_safe_pattern_matches(
+            &pack,
+            "az deployment group what-if --resource-group rg --template-file main.bicep",
+        );
+        assert_safe_pattern_matches(
+            &pack,
+            "az --subscription prod deployment sub create --location eastus --template-file main.bicep --what-if",
+        );
+
+        assert_no_safe_match(&pack, "az group delete --name prod --what-if");
+        assert_blocks_with_pattern(
+            &pack,
+            "az group delete --name prod --what-if",
+            "group-delete",
+        );
+        assert_no_safe_match(
+            &pack,
+            "az vm delete --name prod --resource-group rg --what-if",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "az vm delete --name prod --resource-group rg --what-if",
+            "vm-delete",
+        );
+        assert_no_safe_match(
+            &pack,
+            "az deployment group create --resource-group rg --template-file main.bicep --what-if=false",
+        );
+    }
+
+    #[test]
     fn acr_patterns_block() {
         let pack = create_pack();
         assert_blocks(&pack, "az acr delete --name myregistry", "acr delete");
@@ -707,8 +750,12 @@ mod tests {
         assert_safe_pattern_matches(&pack, "az version");
         // az-help
         assert_safe_pattern_matches(&pack, "az vm delete --help");
-        // az-what-if
-        assert_safe_pattern_matches(&pack, "az group delete --what-if");
+        // az-deployment-what-if
+        assert_safe_pattern_matches(&pack, "az deployment group what-if --resource-group rg");
+        assert_safe_pattern_matches(
+            &pack,
+            "az deployment group create --resource-group rg --template-file main.bicep --what-if",
+        );
     }
 
     #[test]
