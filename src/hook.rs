@@ -628,6 +628,7 @@ pub(crate) fn print_colorful_warning_to(
     pattern_suggestions: &[PatternSuggestion],
     severity: Option<crate::packs::Severity>,
     branch_context: Option<&crate::evaluator::BranchContext>,
+    audience: WarningAudience,
 ) {
     let theme = auto_theme();
 
@@ -663,7 +664,7 @@ pub(crate) fn print_colorful_warning_to(
         denial = denial.with_explanation(text);
     }
 
-    if let Some(code) = allow_once_code {
+    if audience == WarningAudience::HumanOperator && let Some(code) = allow_once_code {
         denial = denial.with_allow_once_code(code);
     }
 
@@ -683,26 +684,43 @@ pub(crate) fn print_colorful_warning_to(
     let reset = if theme.colors_enabled { "\x1b[0m" } else { "" };
     let cyan = if theme.colors_enabled { "\x1b[36m" } else { "" };
 
-    let _ = writeln!(writer, "{footer_style}Learn more:{reset}");
-    let _ = writeln!(writer, "  $ {cyan}{explain_cmd}{reset}");
+    match audience {
+        WarningAudience::HumanOperator => {
+            let _ = writeln!(writer, "{footer_style}Learn more:{reset}");
+            let _ = writeln!(writer, "  $ {cyan}{explain_cmd}{reset}");
 
-    if let Some(ref rule) = rule_id {
-        let _ = writeln!(
-            writer,
-            "  $ {cyan}dcg allowlist add {rule} --project{reset}"
-        );
+            if let Some(ref rule) = rule_id {
+                let _ = writeln!(
+                    writer,
+                    "  $ {cyan}dcg allowlist add {rule} --project{reset}"
+                );
+            }
+
+            let _ = writeln!(writer);
+            let _ = writeln!(
+                writer,
+                "{footer_style}False positive? File an issue:{reset}"
+            );
+            let _ = writeln!(
+                writer,
+                "{footer_style}https://github.com/Dicklesworthstone/destructive_command_guard/issues/new?template=false_positive.yml{reset}"
+            );
+            let _ = writeln!(writer);
+        }
+        WarningAudience::CodexModel => {
+            let _ = writeln!(
+                writer,
+                "{footer_style}This command is blocked. Do not retry it, create a bypass, or change dcg policy yourself. Ask the user for explicit permission if the operation is truly required.{reset}"
+            );
+            let _ = writeln!(writer);
+        }
     }
+}
 
-    let _ = writeln!(writer);
-    let _ = writeln!(
-        writer,
-        "{footer_style}False positive? File an issue:{reset}"
-    );
-    let _ = writeln!(
-        writer,
-        "{footer_style}https://github.com/Dicklesworthstone/destructive_command_guard/issues/new?template=false_positive.yml{reset}"
-    );
-    let _ = writeln!(writer);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WarningAudience {
+    HumanOperator,
+    CodexModel,
 }
 
 fn pattern_suggestion_alternatives(
@@ -757,6 +775,7 @@ pub fn print_colorful_warning(
         pattern_suggestions,
         severity,
         None,
+        WarningAudience::HumanOperator,
     );
 }
 
@@ -823,6 +842,13 @@ pub fn write_denial_to(
     branch_context: Option<&crate::evaluator::BranchContext>,
 ) {
     let allow_once_code = allow_once.map(|info| info.code.as_str());
+    let warning_audience = match protocol {
+        HookProtocol::Codex => WarningAudience::CodexModel,
+        HookProtocol::ClaudeCompatible | HookProtocol::Copilot | HookProtocol::Gemini => {
+            WarningAudience::HumanOperator
+        }
+    };
+
     print_colorful_warning_to(
         stderr,
         command,
@@ -835,6 +861,7 @@ pub fn write_denial_to(
         pattern_suggestions,
         severity,
         branch_context,
+        warning_audience,
     );
 
     let message = format_denial_message(command, reason, explanation, pack, pattern);
@@ -1825,6 +1852,18 @@ mod tests {
         assert!(
             stderr_str.contains("core.git:reset-hard"),
             "stderr must contain the rule id for agent parsing; got: {stderr_str}"
+        );
+        assert!(
+            !stderr_str.contains("dcg allowlist add"),
+            "Codex stderr must not teach the model to self-allowlist; got: {stderr_str}"
+        );
+        assert!(
+            !stderr_str.contains("dcg allow-once") && !stderr_str.contains("abc123"),
+            "Codex stderr must not expose allow-once bypass details; got: {stderr_str}"
+        );
+        assert!(
+            stderr_str.contains("Do not retry it, create a bypass, or change dcg policy yourself"),
+            "Codex stderr should give an explicit no-bypass instruction; got: {stderr_str}"
         );
     }
 
