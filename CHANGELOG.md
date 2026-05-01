@@ -23,7 +23,7 @@ to ship in prebuilt binaries.
 - Accepted documented truthy and falsey values for global boolean environment
   flags such as `DCG_NO_COLOR=1`, `DCG_QUIET=1`,
   `DCG_LEGACY_OUTPUT=1`, and `DCG_NO_SUGGESTIONS=1` instead of letting clap
-  reject `1` as an invalid boolean.
+  reject `1` as an invalid boolean ([0b350e3](https://github.com/Dicklesworthstone/destructive_command_guard/commit/0b350e3)).
 
 ## [v0.4.7](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.7) -- 2026-05-01 [Release]
 
