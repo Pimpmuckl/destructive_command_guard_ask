@@ -614,6 +614,81 @@ EOF
     [[ "$output" != *"Cursor IDE hook"* ]]
 }
 
+@test "uninstall.ps1: preserves non-Bash PreToolUse dcg hooks" {
+    log_test "Testing PowerShell Codex uninstall only removes Bash-owned dcg hooks..."
+    local pwsh_bin
+    pwsh_bin="$(PATH="${ORIGINAL_PATH:-$PATH}" command -v pwsh || true)"
+    [ -n "$pwsh_bin" ] || skip "pwsh not available"
+
+    mkdir -p "$HOME/.codex"
+    cat > "$HOME/.codex/hooks.json" << 'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {"type": "command", "command": "C:\\tools\\dcg.exe"}
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "C:\\tools\\dcg.exe"},
+          {"type": "command", "command": "other-tool"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    run env DCG_UNINSTALL_PS1="$PROJECT_ROOT/uninstall.ps1" DCG_HOOKS_JSON="$HOME/.codex/hooks.json" "$pwsh_bin" -NoProfile -Command '
+$ScriptPath = $env:DCG_UNINSTALL_PS1
+$HooksPath = $env:DCG_HOOKS_JSON
+$errors = $null
+$tokens = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) {
+  $errors | ForEach-Object { Write-Error $_ }
+  exit 1
+}
+$ast.EndBlock.Statements |
+  Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] } |
+  ForEach-Object { . ([scriptblock]::Create($_.Extent.Text)) }
+
+$result = Remove-DcgHooksFromJsonFile -Path $HooksPath -DeleteEmptyFile
+if (-not $result) {
+  Write-Error "expected Bash dcg hook removal"
+  exit 2
+}
+
+$config = Get-Content -Raw -Path $HooksPath | ConvertFrom-Json
+$entries = @($config.hooks.PreToolUse)
+$readEntry = @($entries | Where-Object { $_.matcher -eq "Read" })[0]
+if ($readEntry.hooks[0].command -ne "C:\tools\dcg.exe") {
+  Write-Error "Read dcg hook was not preserved"
+  exit 3
+}
+
+$bashEntry = @($entries | Where-Object { $_.matcher -eq "Bash" })[0]
+$bashCommands = @($bashEntry.hooks | ForEach-Object { $_.command })
+if ($bashCommands -contains "C:\tools\dcg.exe") {
+  Write-Error "Bash dcg hook was not removed"
+  exit 4
+}
+if ($bashCommands -notcontains "other-tool") {
+  Write-Error "coexisting Bash hook was not preserved"
+  exit 5
+}
+'
+
+    log_test "pwsh uninstall.ps1 status: $status"
+    log_test "pwsh uninstall.ps1 output: $output"
+
+    [ "$status" -eq 0 ]
+}
+
 # ============================================================================
 # Aider Uninstall Tests
 # ============================================================================

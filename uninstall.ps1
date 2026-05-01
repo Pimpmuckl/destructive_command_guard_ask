@@ -133,6 +133,11 @@ function Remove-DcgHooksFromJsonFile {
   $removed = $false
 
   foreach ($entry in (Get-JsonArray $preToolUse)) {
+    if ((Get-ObjectPropertyValue $entry "matcher") -ne "Bash") {
+      $newPreToolUse += $entry
+      continue
+    }
+
     $inner = Get-ObjectPropertyValue $entry "hooks"
     if ($null -eq $inner) {
       $newPreToolUse += $entry
