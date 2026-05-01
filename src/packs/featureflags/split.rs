@@ -383,7 +383,7 @@ mod tests {
 
         assert_blocks_with_pattern(
             &pack,
-            "curl https://api.split.io/internal/api/v2/environments/staging -X DELETE",
+            "curl https://api.split.io/internal/api/v2/environments/staging -XDELETE",
             "split-api-delete-environments",
         );
     }

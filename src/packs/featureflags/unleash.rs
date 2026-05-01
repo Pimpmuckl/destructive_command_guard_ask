@@ -348,7 +348,7 @@ mod tests {
 
         assert_blocks_with_pattern(
             &pack,
-            "curl http://unleash.example.com:4242/api/admin/projects/my-project -X DELETE",
+            "curl http://unleash.example.com:4242/api/admin/projects/my-project --request=DELETE",
             "unleash-api-delete-projects",
         );
     }

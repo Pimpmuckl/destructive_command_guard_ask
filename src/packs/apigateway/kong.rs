@@ -415,7 +415,7 @@ mod tests {
         // URL before -X DELETE flag (common curl pattern)
         assert_blocks_with_pattern(
             &pack,
-            "curl localhost:8001/services/my-service -X DELETE",
+            "curl localhost:8001/services/my-service -XDELETE",
             "kong-admin-delete-services",
         );
         assert_blocks_with_pattern(
@@ -434,7 +434,7 @@ mod tests {
     fn curl_get_safe_pattern_does_not_mask_destructive_api_methods() {
         let pack = create_pack();
         let command =
-            "curl -X GET localhost:8001/routes -X DELETE localhost:8001/services/my-service";
+            "curl -XGET localhost:8001/routes --request=DELETE localhost:8001/services/my-service";
 
         assert_no_safe_match(&pack, command);
         assert_blocks_with_pattern(&pack, command, "kong-admin-delete-services");

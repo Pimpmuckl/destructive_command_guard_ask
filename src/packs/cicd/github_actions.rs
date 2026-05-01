@@ -252,12 +252,12 @@ mod tests {
         assert_blocks_with_severity(&pack, "gh run cancel 456", Severity::Low);
         assert_blocks_with_severity(
             &pack,
-            "gh api -X DELETE repos/o/r/actions/secrets/FOO",
+            "gh api -XDELETE repos/o/r/actions/secrets/FOO",
             Severity::High,
         );
         assert_blocks_with_severity(
             &pack,
-            "gh api --method DELETE /repos/o/r/actions/variables/FOO",
+            "gh api --method=DELETE /repos/o/r/actions/variables/FOO",
             Severity::Medium,
         );
     }
@@ -278,7 +278,7 @@ mod tests {
     fn gh_api_get_safe_pattern_does_not_mask_delete_methods() {
         let pack = create_pack();
         let command =
-            "gh api -X GET repos/o/r/actions/secrets -X DELETE repos/o/r/actions/secrets/FOO";
+            "gh api -XGET repos/o/r/actions/secrets -XDELETE repos/o/r/actions/secrets/FOO";
 
         assert_no_safe_match(&pack, command);
         assert_blocks_with_pattern(&pack, command, "gh-actions-api-delete-secrets");

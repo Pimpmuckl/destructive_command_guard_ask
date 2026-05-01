@@ -312,10 +312,14 @@ mod tests {
         assert_blocks_with_severity(&pack, "gh run cancel 123456", Severity::High);
         assert_blocks_with_severity(
             &pack,
-            "gh api -X DELETE /repos/owner/repo/actions/secrets/SECRET",
+            "gh api -XDELETE /repos/owner/repo/actions/secrets/SECRET",
             Severity::High,
         );
-        assert_blocks_with_severity(&pack, "gh api -X DELETE /repos/owner/repo", Severity::High);
+        assert_blocks_with_severity(
+            &pack,
+            "gh api --method=DELETE /repos/owner/repo",
+            Severity::High,
+        );
     }
 
     #[test]
@@ -341,7 +345,7 @@ mod tests {
     fn gh_api_get_safe_pattern_does_not_mask_delete_methods() {
         let pack = create_pack();
         let command = "gh api -X GET /repos/owner/repo/actions/secrets \
-            -X DELETE /repos/owner/repo/actions/secrets/SECRET";
+            -XDELETE /repos/owner/repo/actions/secrets/SECRET";
 
         assert_no_safe_match(&pack, command);
         assert_blocks_with_pattern(&pack, command, "gh-api-delete-actions-secret");
