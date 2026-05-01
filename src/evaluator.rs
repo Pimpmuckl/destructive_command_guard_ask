@@ -2258,16 +2258,29 @@ fn should_check_original_control_plane_payload_for_any_pack(
 }
 
 fn original_command_contains_railway_api_signal(command: &str) -> bool {
+    let case_sensitive_signals = [
+        "PROJECT_ACCESS_TOKEN",
+        "RAILWAY_API_TOKEN",
+        "RAILWAY_API_URL",
+        "RAILWAY_TOKEN",
+    ];
+    if case_sensitive_signals
+        .iter()
+        .any(|signal| command.contains(signal))
+    {
+        return true;
+    }
+
+    let lower_command = command.to_ascii_lowercase();
     [
         "backboard.railway.app",
         "backboard.railway.com",
+        "project-access-token",
         "railway.app/graphql",
         "railway.com/graphql",
-        "RAILWAY_API_URL",
-        "RAILWAY_API_TOKEN",
     ]
     .iter()
-    .any(|signal| command.contains(signal))
+    .any(|signal| lower_command.contains(signal))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3516,6 +3529,27 @@ mod tests {
     }
 
     #[test]
+    fn railway_api_mutations_with_project_access_token_are_not_hidden_by_data_masking() {
+        let result = evaluate_with_pack_ids(
+            r#"curl https://api.example.com/graphql -H "Project-Access-Token: $PROJECT_ACCESS_TOKEN" --data-binary '{"query":"mutation { projectDelete(id:\"p\") }"}'"#,
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_denied(),
+            "Railway API mutation authenticated by Project-Access-Token must be blocked"
+        );
+        let info = result
+            .pattern_info
+            .expect("denial should include pattern info");
+        assert_eq!(info.pack_id.as_deref(), Some("platform.railway"));
+        assert_eq!(
+            info.pattern_name.as_deref(),
+            Some("railway-api-project-delete")
+        );
+    }
+
+    #[test]
     fn railway_api_payload_recheck_does_not_cross_compound_segments() {
         let result = evaluate_with_pack_ids(
             r#"curl https://backboard.railway.app/graphql/v2 --data-binary '{"query":"query { project(id:\"p\") { id } }"}' && echo projectDelete"#,
@@ -3593,6 +3627,19 @@ mod tests {
         assert!(
             result.is_allowed(),
             "masked documentation text should not activate Railway API inspection"
+        );
+    }
+
+    #[test]
+    fn masked_non_curl_project_token_documentation_stays_allowed() {
+        let result = evaluate_with_pack_ids(
+            r"echo 'projectDelete with Project-Access-Token belongs in docs'",
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_allowed(),
+            "masked project-token documentation should not activate Railway API inspection"
         );
     }
 
