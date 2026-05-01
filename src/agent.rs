@@ -417,8 +417,17 @@ fn detect_from_parent_process() -> Option<DetectionResult> {
     let ppid = parent_id();
     let comm_path = format!("/proc/{ppid}/comm");
 
-    let process_name = fs::read_to_string(&comm_path).ok()?;
-    detection_from_process_name(&process_name)
+    if let Ok(process_name) = fs::read_to_string(&comm_path) {
+        if let Some(result) = detection_from_process_name(&process_name) {
+            return Some(result);
+        }
+    }
+
+    let cmdline_path = format!("/proc/{ppid}/cmdline");
+    let process_args = fs::read(&cmdline_path)
+        .ok()
+        .and_then(|bytes| nul_separated_args_to_string(&bytes))?;
+    detection_from_process_name(&process_args)
 }
 
 /// Detect agent from parent process on Unix platforms without `/proc`.
@@ -438,13 +447,15 @@ fn parent_process_name_from_ps(pid: u32) -> Option<String> {
         .output()
         .ok()?;
 
-    if !output.status.success() {
-        return None;
+    if output.status.success() {
+        if let Some(name) = first_non_empty_line(&String::from_utf8_lossy(&output.stdout)) {
+            if detection_from_process_name(name).is_some() {
+                return Some(name.to_string());
+            }
+        }
     }
 
-    first_non_empty_line(&String::from_utf8_lossy(&output.stdout))
-        .map(str::to_string)
-        .or_else(|| parent_process_args_from_ps(&pid))
+    parent_process_args_from_ps(&pid)
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -519,6 +530,23 @@ fn normalize_process_name(raw_process_name: &str) -> Option<String> {
 
 fn first_non_empty_line(value: &str) -> Option<&str> {
     value.lines().map(str::trim).find(|line| !line.is_empty())
+}
+
+fn nul_separated_args_to_string(bytes: &[u8]) -> Option<String> {
+    let mut args = Vec::new();
+
+    for arg in bytes.split(|byte| *byte == b'\0') {
+        if arg.is_empty() {
+            continue;
+        }
+        args.push(String::from_utf8_lossy(arg));
+    }
+
+    if args.is_empty() {
+        None
+    } else {
+        Some(args.join(" "))
+    }
 }
 
 /// Map a parent-process name to a known agent.
@@ -795,6 +823,20 @@ mod tests {
     #[test]
     fn test_detection_from_process_name_rejects_empty_output() {
         assert_eq!(detection_from_process_name("\n\n  "), None);
+    }
+
+    #[test]
+    fn test_nul_separated_args_to_string_preserves_wrapped_agent_argv() {
+        let args = nul_separated_args_to_string(b"node\0/usr/local/bin/codex\0--foo\0")
+            .expect("argv bytes should decode");
+
+        assert_eq!(args, "node /usr/local/bin/codex --foo");
+        assert_eq!(agent_from_process_name(&args), Some(Agent::CodexCli));
+    }
+
+    #[test]
+    fn test_nul_separated_args_to_string_rejects_empty_argv() {
+        assert_eq!(nul_separated_args_to_string(b"\0\0"), None);
     }
 
     #[test]
