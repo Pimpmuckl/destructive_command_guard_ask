@@ -200,7 +200,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         // API - DELETE requests (Flipt uses gRPC but also has REST API)
         destructive_pattern!(
             "flipt-api-delete",
-            r"curl\s+.*(?:-X\s+DELETE|--request(?:=|\s+)DELETE)\s+.*?/api/v1/",
+            r"curl\s+.*(?:-X\s*DELETE|--request(?:=|\s+)DELETE)\s+.*?/api/v1/",
             "DELETE request to Flipt API can remove flags, segments, or rules.",
             High,
             "Direct API DELETE calls to Flipt can remove flags, segments, rules, or \
@@ -313,6 +313,11 @@ mod tests {
         assert_blocks_with_pattern(
             &pack,
             "curl -X DELETE http://flipt.example.com:8080/api/v1/namespaces/default/flags/my-flag",
+            "flipt-api-delete",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "curl -XDELETE http://flipt.example.com:8080/api/v1/namespaces/default/flags/my-flag",
             "flipt-api-delete",
         );
         assert_blocks_with_pattern(
