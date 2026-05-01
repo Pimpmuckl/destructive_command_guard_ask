@@ -1794,13 +1794,13 @@ if not isinstance(config, dict):
     raise SystemExit(0)
 
 hooks_obj = config.get("hooks", {})
-if not isinstance(hooks_obj, dict):
-    print("merge")
+if "hooks" in config and not isinstance(hooks_obj, dict):
+    print("invalid")
     raise SystemExit(0)
 
 pre_tool_use = hooks_obj.get("PreToolUse", [])
-if not isinstance(pre_tool_use, list):
-    print("merge")
+if "PreToolUse" in hooks_obj and not isinstance(pre_tool_use, list):
+    print("invalid")
     raise SystemExit(0)
 
 dcg_commands = []
@@ -1823,7 +1823,7 @@ PYEOF
       if [ "$codex_hook_state" = "invalid" ]; then
         CODEX_STATUS="failed"
         CODEX_FAILURE_REASON="existing hooks.json is invalid; left unchanged"
-        warn "Codex hooks.json is invalid JSON; leaving it unchanged: $settings_file"
+        warn "Codex hooks.json is invalid; leaving it unchanged: $settings_file"
         return 0
       fi
       if [ "$codex_hook_state" = "already" ]; then
@@ -1871,14 +1871,23 @@ except (IOError, ValueError, json.JSONDecodeError):
     print(f"invalid Codex hooks.json: {hooks_file}", file=sys.stderr)
     raise SystemExit(1)
 
-# Ensure hooks structure exists
 if not isinstance(config, dict):
     print(f"Codex hooks.json must contain a JSON object: {hooks_file}", file=sys.stderr)
     raise SystemExit(1)
-if not isinstance(config.get('hooks'), dict):
+
+# Preserve malformed top-level hook structures instead of replacing them. A
+# user may have hand-edited data here; the installer should not discard it.
+if 'hooks' not in config:
     config['hooks'] = {}
-if not isinstance(config['hooks'].get('PreToolUse'), list):
+elif not isinstance(config['hooks'], dict):
+    print(f"Codex hooks.json hooks must contain a JSON object: {hooks_file}", file=sys.stderr)
+    raise SystemExit(1)
+
+if 'PreToolUse' not in config['hooks']:
     config['hooks']['PreToolUse'] = []
+elif not isinstance(config['hooks']['PreToolUse'], list):
+    print(f"Codex hooks.json PreToolUse must contain a list: {hooks_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 # Look for existing Bash matcher
 bash_hooks = []

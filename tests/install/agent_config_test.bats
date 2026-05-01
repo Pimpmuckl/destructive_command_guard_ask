@@ -1167,6 +1167,60 @@ EOF
     assert_codex_hooks_unchanged
 }
 
+@test "configure_codex: non-object hooks is preserved and reports failed" {
+    log_test "Testing Codex non-object hooks preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_codex
+    seed_codex_hooks_json '{"hooks":["bad-shape"]}'
+
+    configure_codex
+    local rc=$?
+
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "CODEX_FAILURE_REASON: ${CODEX_FAILURE_REASON:-}"
+    log_codex_hooks_transition
+
+    [ "$rc" -eq 0 ]
+    [ "$CODEX_STATUS" = "failed" ]
+    [[ "$CODEX_FAILURE_REASON" == *"invalid"* ]]
+    [ -z "$CODEX_BACKUP" ]
+    assert_codex_hooks_unchanged
+}
+
+@test "configure_codex: non-list PreToolUse is preserved and reports failed" {
+    log_test "Testing Codex non-list PreToolUse preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_codex
+    seed_codex_hooks_json '{
+  "hooks": {
+    "PreToolUse": {"bad": "shape"},
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history end"}
+        ]
+      }
+    ]
+  }
+}'
+
+    configure_codex
+    local rc=$?
+
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "CODEX_FAILURE_REASON: ${CODEX_FAILURE_REASON:-}"
+    log_codex_hooks_transition
+
+    [ "$rc" -eq 0 ]
+    [ "$CODEX_STATUS" = "failed" ]
+    [[ "$CODEX_FAILURE_REASON" == *"invalid"* ]]
+    [ -z "$CODEX_BACKUP" ]
+    assert_codex_hooks_unchanged
+}
+
 @test "configure_codex: fails without python3 and preserves existing hooks.json" {
     log_test "Testing Codex merge failure when python3 is unavailable..."
 
