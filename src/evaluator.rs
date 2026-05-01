@@ -2026,7 +2026,14 @@ fn evaluate_packs_with_allowlists(
                 continue;
             };
 
-            if has_compound_segments && span_is_inside_any_segment(span, &segment_ranges) {
+            // Non-filesystem packs already checked each segment above, so skip
+            // duplicate full-command matches that sit wholly inside one segment.
+            // core.filesystem uses its specialized rm parser instead of that
+            // segment loop; keep its full-command regex fallback visible.
+            if has_compound_segments
+                && pack_id != "core.filesystem"
+                && span_is_inside_any_segment(span, &segment_ranges)
+            {
                 continue;
             }
 
