@@ -149,7 +149,22 @@ fn generate_category_doc(category: &str, packs: &[&Pack]) -> String {
         out.push_str(&generate_pack_section(pack));
     }
 
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out.push('\n');
+
     out
+}
+
+fn packs_by_category(registry: &PackRegistry) -> BTreeMap<String, Vec<&Pack>> {
+    let mut by_category: BTreeMap<String, Vec<&Pack>> = BTreeMap::new();
+    for pack_id in registry.all_pack_ids() {
+        let category = category_from_pack_id(pack_id).to_string();
+        let pack = registry.get(pack_id).expect("pack should exist");
+        by_category.entry(category).or_default().push(pack);
+    }
+    by_category
 }
 
 /// Generate all pack documentation files.
@@ -160,13 +175,7 @@ fn generate_all_docs() -> std::io::Result<()> {
     // Ensure directory exists
     fs::create_dir_all(&docs_packs_dir)?;
 
-    // Group packs by category
-    let mut by_category: BTreeMap<String, Vec<&Pack>> = BTreeMap::new();
-    for pack_id in registry.all_pack_ids() {
-        let category = category_from_pack_id(pack_id).to_string();
-        let pack = registry.get(pack_id).expect("pack should exist");
-        by_category.entry(category).or_default().push(pack);
-    }
+    let by_category = packs_by_category(&registry);
 
     // Generate per-category documentation
     for (category, packs) in &by_category {
@@ -229,6 +238,32 @@ fn generate_all_docs() -> std::io::Result<()> {
 
     fs::write(docs_packs_dir.join("README.md"), &index)?;
     println!("Generated: docs/packs/README.md");
+
+    Ok(())
+}
+
+#[test]
+fn verify_generated_pack_docs_are_current() -> std::io::Result<()> {
+    let registry = PackRegistry::new();
+    let docs_packs_dir = repo_root().join("docs/packs");
+    let by_category = packs_by_category(&registry);
+    let mut stale_docs = Vec::new();
+
+    for (category, packs) in &by_category {
+        let filename = category_filename(category);
+        let path = docs_packs_dir.join(&filename);
+        let expected = generate_category_doc(category, packs);
+        let actual = fs::read_to_string(&path)?;
+        if actual != expected {
+            stale_docs.push(format!("docs/packs/{filename}"));
+        }
+    }
+
+    assert!(
+        stale_docs.is_empty(),
+        "Generated pack docs are stale; run `cargo test regenerate_pack_docs -- --ignored` and review:\n{}",
+        stale_docs.join("\n")
+    );
 
     Ok(())
 }

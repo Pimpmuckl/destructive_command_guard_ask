@@ -34,7 +34,7 @@ These patterns match safe commands that are always allowed:
 | `stripe-products-list` | `\bstripe\b(?:\s+--?\S+(?:\s+\S+)?)*\s+products\s+list\b` |
 | `stripe-payments-list` | `\bstripe\b(?:\s+--?\S+(?:\s+\S+)?)*\s+payments\s+list\b` |
 | `stripe-logs-tail` | `\bstripe\b(?:\s+--?\S+(?:\s+\S+)?)*\s+logs\s+tail\b` |
-| `stripe-api-get` | `(?i)curl\s+.*(?:-X\|--request)\s+GET\b.*api\.stripe\.com.*\/v1\/` |
+| `stripe-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*api\.stripe\.com.*\/v1\/))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*api\.stripe\.com.*\/v1\/` |
 
 ### Destructive Patterns (Blocked)
 
@@ -97,7 +97,7 @@ These patterns match safe commands that are always allowed:
 |--------------|----------|
 | `braintree-customer-find` | `\bbraintree\.Customer\.find\b` |
 | `braintree-customer-search` | `\bgateway\.customer\.search\b` |
-| `braintree-api-get` | `(?i)curl\s+.*(?:-X\|--request)\s+GET\b.*braintreegateway\.com` |
+| `braintree-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*braintreegateway\.com))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*braintreegateway\.com` |
 
 ### Destructive Patterns (Blocked)
 

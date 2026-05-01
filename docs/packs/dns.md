@@ -33,7 +33,7 @@ These patterns match safe commands that are always allowed:
 |--------------|----------|
 | `cloudflare-wrangler-dns-list` | `wrangler(?:\s+--?\S+(?:\s+\S+)?)*\s+dns-records\s+list\b` |
 | `cloudflare-wrangler-whoami` | `wrangler(?:\s+--?\S+(?:\s+\S+)?)*\s+whoami\b` |
-| `cloudflare-api-get` | `curl\b.*\s-X\s*GET\b.*\bapi\.cloudflare\.com\b` |
+| `cloudflare-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*\bapi\.cloudflare\.com\b[^\s]*?/(?:dns_records\|zones)/[^\s]+))curl\b.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*\bapi\.cloudflare\.com\b` |
 
 ### Destructive Patterns (Blocked)
 
@@ -146,7 +146,7 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `dns-dig-safe` | `\bdig\b(?!.*\baxfr\b)(?!.*\bixfr\b)` |
+| `dns-dig-safe` | `\bdig\b(?!.*(?i:\b(?:axfr\|ixfr)\b))` |
 | `dns-host-safe` | `\bhost\b` |
 | `dns-nslookup-safe` | `\bnslookup\b` |
 
@@ -180,4 +180,3 @@ risk_acknowledged = true
 ```
 
 ---
-

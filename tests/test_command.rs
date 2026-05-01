@@ -399,6 +399,36 @@ fn test_with_packs_checks_railway_api_project_access_token_payloads() {
 }
 
 #[test]
+fn test_with_packs_checks_railway_api_multiline_payloads() {
+    let cmd = "curl https://backboard.railway.app/graphql/v2 --data-binary '{\n\"query\":\"mutation { projectDelete(id:\\\"p\\\") }\"\n}'";
+
+    let output = run_dcg_isolated(
+        &[
+            "test",
+            "--format",
+            "json",
+            "--with-packs",
+            "platform.railway",
+            cmd,
+        ],
+        None,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Railway API mutation inside multiline payload should be blocked\nstdout: {}\nstderr: {}",
+        stdout_text(&output),
+        stderr_text(&output)
+    );
+
+    let json = parse_json(&output);
+    assert_eq!(json["decision"], "deny");
+    assert_eq!(json["pack_id"], "platform.railway");
+    assert_eq!(json["pattern_name"], "railway-api-project-delete");
+}
+
+#[test]
 fn test_with_packs_checks_railway_function_delete() {
     let output = run_dcg_isolated(
         &[

@@ -58,6 +58,7 @@ use crate::pending_exceptions::AllowOnceStore;
 use crate::perf::Deadline;
 use chrono::Utc;
 use regex::RegexSet;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -2160,10 +2161,11 @@ fn evaluate_original_control_plane_payloads(
     let original_len = original_command.len();
     let segment_ranges = command_segment_ranges(original_command);
     if segment_ranges.len() <= 1 {
+        let command_slice = control_plane_segment_for_matching(original_command);
         return evaluate_pack_destructive_patterns(
             pack_id,
             pack,
-            original_command,
+            command_slice.as_ref(),
             0,
             original_command,
             Some(0),
@@ -2179,10 +2181,11 @@ fn evaluate_original_control_plane_payloads(
     for (segment_start, segment_end) in segment_ranges {
         let segment = &original_command[segment_start..segment_end];
         if original_control_plane_segment_is_relevant(pack_id, segment) {
+            let command_slice = control_plane_segment_for_matching(segment);
             if let Some(result) = evaluate_pack_destructive_patterns(
                 pack_id,
                 pack,
-                segment,
+                command_slice.as_ref(),
                 segment_start,
                 original_command,
                 Some(0),
@@ -2199,6 +2202,22 @@ fn evaluate_original_control_plane_payloads(
     }
 
     None
+}
+
+fn control_plane_segment_for_matching(segment: &str) -> Cow<'_, str> {
+    if !segment.contains(['\r', '\n']) {
+        return Cow::Borrowed(segment);
+    }
+
+    let mut normalized = String::with_capacity(segment.len());
+    for ch in segment.chars() {
+        if matches!(ch, '\r' | '\n') {
+            normalized.push(' ');
+        } else {
+            normalized.push(ch);
+        }
+    }
+    Cow::Owned(normalized)
 }
 
 fn command_segment_ranges(cmd: &str) -> Vec<(usize, usize)> {
@@ -3606,6 +3625,27 @@ mod tests {
         assert!(
             result.is_denied(),
             "Railway API mutation split with shell line continuation must still be blocked"
+        );
+        let info = result
+            .pattern_info
+            .expect("denial should include pattern info");
+        assert_eq!(info.pack_id.as_deref(), Some("platform.railway"));
+        assert_eq!(
+            info.pattern_name.as_deref(),
+            Some("railway-api-project-delete")
+        );
+    }
+
+    #[test]
+    fn railway_api_payload_recheck_handles_multiline_quoted_payloads() {
+        let result = evaluate_with_pack_ids(
+            "curl https://backboard.railway.app/graphql/v2 --data-binary '{\n\"query\":\"mutation { projectDelete(id:\\\"p\\\") }\"\n}'",
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_denied(),
+            "Railway API mutation inside a multiline quoted payload must still be blocked"
         );
         let info = result
             .pattern_info

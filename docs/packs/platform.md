@@ -37,7 +37,7 @@ These patterns match safe commands that are always allowed:
 | `gh-variable-list` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:repo\|gist\|release\|issue\|ssh-key\|secret\|variable\|run\|auth\|status\|api)\b)(?:(?:\x22[^\x22]*\x22)\|(?:'[^']*')\|\S+))?)*\s+variable\s+list\b` |
 | `gh-auth-status` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:repo\|gist\|release\|issue\|ssh-key\|secret\|variable\|run\|auth\|status\|api)\b)(?:(?:\x22[^\x22]*\x22)\|(?:'[^']*')\|\S+))?)*\s+auth\s+status\b` |
 | `gh-status` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:repo\|gist\|release\|issue\|ssh-key\|secret\|variable\|run\|auth\|status\|api)\b)(?:(?:\x22[^\x22]*\x22)\|(?:'[^']*')\|\S+))?)*\s+status\b` |
-| `gh-api-explicit-get` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:repo\|gist\|release\|issue\|ssh-key\|secret\|variable\|run\|auth\|status\|api)\b)(?:(?:\x22[^\x22]*\x22)\|(?:'[^']*')\|\S+))?)*\s+api\b.*(?:-X\|--method)\s+GET\b` |
+| `gh-api-explicit-get` | `^(?!(?=.*(?:-X\s*\|--method(?:=\|\s+))DELETE\b))gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:repo\|gist\|release\|issue\|ssh-key\|secret\|variable\|run\|auth\|status\|api)\b)(?:(?:\x22[^\x22]*\x22)\|(?:'[^']*')\|\S+))?)*\s+api\b.*(?:-X\s*\|--method(?:=\|\s+))GET\b` |
 
 ### Destructive Patterns (Blocked)
 
@@ -169,6 +169,8 @@ Commands containing these keywords are checked against this pack:
 - `backboard.railway.com`
 - `railway.app/graphql`
 - `railway.com/graphql`
+- `Project-Access-Token`
+- `PROJECT_ACCESS_TOKEN`
 - `projectDelete`
 - `projectScheduleDelete`
 - `environmentDelete`
@@ -228,6 +230,7 @@ These patterns match potentially destructive commands:
 | `railway-api-volume-backup-schedule-update` | Railway Public API volume backup schedule update mutation detected. | high |
 | `railway-api-volume-detach` | Railway Public API volume detach mutation detected. | high |
 | `railway-api-variable-delete` | Railway Public API variable deletion mutation detected. | high |
+| `railway-api-variable-collection-replace` | Railway Public API variableCollectionUpsert with replace=true detected. | high |
 | `railway-api-database-variable-upsert` | Railway Public API upsert is changing a database connection variable. | high |
 | `railway-api-deployment-remove` | Railway Public API deployment removal or stop mutation detected. | high |
 

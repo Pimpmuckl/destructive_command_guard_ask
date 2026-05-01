@@ -238,12 +238,12 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `redis-get` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\b(?:GET\|MGET)\b` |
-| `redis-scan` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\bSCAN\b` |
-| `redis-info` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\bINFO\b` |
-| `redis-keys` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\bKEYS\b` |
-| `redis-dbsize` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\bDBSIZE\b` |
-| `redis-config-get` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE))\b).*\bCONFIG\s+GET\b` |
+| `redis-get` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\b(?:GET\|MGET)\b` |
+| `redis-scan` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\bSCAN\b` |
+| `redis-info` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\bINFO\b` |
+| `redis-keys` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\bKEYS\b` |
+| `redis-dbsize` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\bDBSIZE\b` |
+| `redis-config-get` | `(?i)^(?!.*\b(?:FLUSHALL\|FLUSHDB\|DEBUG\|SHUTDOWN\|CONFIG\s+(?:SET\|REWRITE\|RESETSTAT)\|xargs\s+(?:-\S+(?:\s+\S+)?\s+)*redis-cli(?:\s+\S+)*\s+(?:DEL\|UNLINK))\b).*\bCONFIG\s+GET\b` |
 
 ### Destructive Patterns (Blocked)
 
@@ -253,6 +253,8 @@ These patterns match potentially destructive commands:
 |--------------|--------|----------|
 | `flushall` | FLUSHALL permanently deletes ALL keys in ALL databases. | critical |
 | `flushdb` | FLUSHDB permanently deletes ALL keys in the current database. | high |
+| `config-resetstat` | CONFIG RESETSTAT clears Redis runtime counters and can hide recent incidents. | medium |
+| `mass-delete-pipeline` | Redis KEYS/SCAN piped to DEL/UNLINK can delete many keys at once. | high |
 | `debug-crash` | DEBUG SEGFAULT/CRASH will crash the Redis server. | critical |
 | `debug-sleep` | DEBUG SLEEP blocks the Redis server and can cause availability issues. | high |
 | `shutdown` | SHUTDOWN stops the Redis server. SHUTDOWN NOSAVE risks data loss. | high |
@@ -458,4 +460,3 @@ risk_acknowledged = true
 ```
 
 ---
-

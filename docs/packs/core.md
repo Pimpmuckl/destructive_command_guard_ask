@@ -106,6 +106,7 @@ Commands containing these keywords are checked against this pack:
 - `>'`
 - `> '`
 - `&>`
+- `>&`
 - `>|`
 - `1>`
 - `2>`
@@ -207,7 +208,7 @@ These patterns match potentially destructive commands:
 | `dd-overwrite-root-home` | dd of=<sensitive-path> overwrites file contents in place. EXTREMELY DANGEROUS on a system or home file. | critical |
 | `dd-overwrite-general` | dd with of=<file> overwrites file contents and requires human approval. | high |
 | `mv-sensitive-source-root-home` | mv touching a sensitive system or home path is the cross-segment recursive-force-delete bypass. EXTREMELY DANGEROUS. | critical |
-| `redirect-truncate-root-home` | shell redirect (>, >\|, &>, 1>, 2>) to a sensitive system or home path truncates the file to zero bytes. EXTREMELY DANGEROUS. | critical |
+| `redirect-truncate-root-home` | shell redirect (>, >\|, &>, >&, 1>, 2>) to a sensitive system or home path truncates the file to zero bytes. EXTREMELY DANGEROUS. | critical |
 
 ### Allowlist Guidance
 
@@ -229,4 +230,3 @@ risk_acknowledged = true
 ```
 
 ---
-

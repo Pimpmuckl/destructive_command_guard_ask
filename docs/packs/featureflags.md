@@ -120,7 +120,7 @@ These patterns match safe commands that are always allowed:
 | `ldcli-metrics-get` | `ldcli(?:\s+--?\S+(?:\s+\S+)?)*\s+metrics\s+get(?=\s\|$)` |
 | `ldcli-help` | `ldcli(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--help\|-h\|help)(?=\s\|$)` |
 | `ldcli-version` | `ldcli(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--version\|version)(?=\s\|$)` |
-| `launchdarkly-api-get` | `curl\s+.*(?:-X\s+GET\|--request\s+GET)\s+.*app\.launchdarkly\.com/api` |
+| `launchdarkly-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*app\.launchdarkly\.com/api/))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*app\.launchdarkly\.com/api` |
 
 ### Destructive Patterns (Blocked)
 
@@ -196,7 +196,7 @@ These patterns match safe commands that are always allowed:
 | `split-workspaces-get` | `split(?:\s+--?\S+(?:\s+\S+)?)*\s+workspaces\s+get(?=\s\|$)` |
 | `split-help` | `split(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--help\|-h\|help)(?=\s\|$)` |
 | `split-version` | `split(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--version\|version)(?=\s\|$)` |
-| `split-api-get` | `curl\s+.*(?:-X\s+GET\|--request\s+GET)\s+.*api\.split\.io` |
+| `split-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*api\.split\.io))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*api\.split\.io` |
 
 ### Destructive Patterns (Blocked)
 
@@ -269,7 +269,7 @@ These patterns match safe commands that are always allowed:
 | `unleash-strategies-get` | `unleash(?:\s+--?\S+(?:\s+\S+)?)*\s+strategies?\s+get(?=\s\|$)` |
 | `unleash-help` | `unleash(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--help\|-h\|help)(?=\s\|$)` |
 | `unleash-version` | `unleash(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:--version\|version)(?=\s\|$)` |
-| `unleash-api-get` | `curl\s+.*(?:-X\s+GET\|--request\s+GET)\s+.*/api/admin/` |
+| `unleash-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*/api/admin/))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*/api/admin/` |
 
 ### Destructive Patterns (Blocked)
 
@@ -307,4 +307,3 @@ risk_acknowledged = true
 ```
 
 ---
-

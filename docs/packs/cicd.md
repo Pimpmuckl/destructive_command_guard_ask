@@ -35,7 +35,7 @@ These patterns match safe commands that are always allowed:
 | `gh-actions-workflow-view` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:secret\|variable\|workflow\|run\|api)\b)\S+)?)*\s+workflow\s+view\b` |
 | `gh-actions-run-list` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:secret\|variable\|workflow\|run\|api)\b)\S+)?)*\s+run\s+list\b` |
 | `gh-actions-run-view` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:secret\|variable\|workflow\|run\|api)\b)\S+)?)*\s+run\s+view\b` |
-| `gh-actions-api-explicit-get` | `gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:secret\|variable\|workflow\|run\|api)\b)\S+)?)*\s+api\b.*(?:-X\|--method)\s+GET\b` |
+| `gh-actions-api-explicit-get` | `^(?!(?=.*(?:-X\s*\|--method(?:=\|\s+))DELETE\b))gh(?:\s+--?[A-Za-z][A-Za-z0-9-]*\b(?:\s+(?!(?:secret\|variable\|workflow\|run\|api)\b)\S+)?)*\s+api\b.*(?:-X\s*\|--method(?:=\|\s+))GET\b` |
 
 ### Destructive Patterns (Blocked)
 
@@ -158,7 +158,7 @@ These patterns match safe commands that are always allowed:
 | `jenkins-cli-list-plugins` | `(?:jenkins-cli\|java\s+-jar\s+\S*jenkins-cli\.jar)(?:\s+--?\S+(?:\s+\S+)?)*\s+list-plugins\b` |
 | `jenkins-cli-get-node` | `(?:jenkins-cli\|java\s+-jar\s+\S*jenkins-cli\.jar)(?:\s+--?\S+(?:\s+\S+)?)*\s+get-node\b` |
 | `jenkins-cli-get-credentials` | `(?:jenkins-cli\|java\s+-jar\s+\S*jenkins-cli\.jar)(?:\s+--?\S+(?:\s+\S+)?)*\s+get-credentials\b` |
-| `jenkins-curl-explicit-get` | `curl(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:-X\|--request)\s+GET\b.*(?:jenkins\|/job/\|/api/)` |
+| `jenkins-curl-explicit-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))POST\b)(?=.*\bdoDelete\b))curl(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:-X\s*\|--request(?:=\|\s+))GET\b.*(?:jenkins\|/job/\|/api/)` |
 
 ### Destructive Patterns (Blocked)
 
@@ -256,4 +256,3 @@ risk_acknowledged = true
 ```
 
 ---
-

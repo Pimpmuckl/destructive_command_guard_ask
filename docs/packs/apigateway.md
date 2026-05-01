@@ -137,7 +137,7 @@ These patterns match safe commands that are always allowed:
 | `deck-validate` | `deck(?:\s+--?\S+(?:\s+\S+)?)*\s+validate(?=\s\|$)` |
 | `deck-convert` | `deck(?:\s+--?\S+(?:\s+\S+)?)*\s+convert(?=\s\|$)` |
 | `deck-file` | `deck(?:\s+--?\S+(?:\s+\S+)?)*\s+file(?=\s\|$)` |
-| `kong-admin-explicit-get` | `curl\s+.*(?:-X\s+GET\|--request\s+GET)\s+.*(?:localhost\|127\.0\.0\.1):8001/` |
+| `kong-admin-explicit-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*(?:localhost\|127\.0\.0\.1):8001/))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*(?:localhost\|127\.0\.0\.1):8001/` |
 
 ### Destructive Patterns (Blocked)
 
@@ -263,4 +263,3 @@ risk_acknowledged = true
 ```
 
 ---
-

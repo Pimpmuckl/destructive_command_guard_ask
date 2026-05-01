@@ -88,7 +88,7 @@ These patterns match safe commands that are always allowed:
 |--------------|----------|
 | `datadog-ci-monitors-list` | `datadog-ci\b(?:\s+--?\S+(?:\s+\S+)?)*\s+monitors\s+(?:get\|list)(?=\s\|$)` |
 | `datadog-ci-dashboards-list` | `datadog-ci\b(?:\s+--?\S+(?:\s+\S+)?)*\s+dashboards\s+(?:get\|list)(?=\s\|$)` |
-| `datadog-api-get` | `(?i)curl\s+.*(?:-X\|--request)\s+GET\b.*api\.datadoghq\.com` |
+| `datadog-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*api\.datadoghq\.com.*\/(?:monitor\|dashboard\|synthetics)\/))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*api\.datadoghq\.com` |
 
 ### Destructive Patterns (Blocked)
 
@@ -145,7 +145,7 @@ These patterns match safe commands that are always allowed:
 | `pd-service-read` | `\bpd\b(?:\s+--?\S+(?:\s+\S+)?)*\s+service\s+(?:list\|get)\b` |
 | `pd-schedule-read` | `\bpd\b(?:\s+--?\S+(?:\s+\S+)?)*\s+schedule\s+(?:list\|get)\b` |
 | `pd-incident-list` | `\bpd\b(?:\s+--?\S+(?:\s+\S+)?)*\s+incident\s+list\b` |
-| `pagerduty-api-get` | `(?i)curl\s+.*(?:-X\|--request)\s+GET\b.*api\.pagerduty\.com` |
+| `pagerduty-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*api\.pagerduty\.com[^\s]*?/(?:services\|schedules)/[^\s]+))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*api\.pagerduty\.com` |
 
 ### Destructive Patterns (Blocked)
 
@@ -205,7 +205,7 @@ These patterns match safe commands that are always allowed:
 | `newrelic-entity-search` | `\bnewrelic\b(?:\s+--?\S+(?:\s+\S+)?)*\s+entity\s+search(?=\s\|$)` |
 | `newrelic-apm-app-get` | `\bnewrelic\b(?:\s+--?\S+(?:\s+\S+)?)*\s+apm\s+application\s+get(?=\s\|$)` |
 | `newrelic-query` | `\bnewrelic\b(?:\s+--?\S+(?:\s+\S+)?)*\s+query(?=\s\|$)` |
-| `newrelic-api-get` | `(?i)curl\s+.*(?:-X\|--request)\s+GET\b.*api\.newrelic\.com` |
+| `newrelic-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))(?:POST\|DELETE)\b)(?=.*api\.newrelic\.com))curl\s+.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*api\.newrelic\.com` |
 
 ### Destructive Patterns (Blocked)
 

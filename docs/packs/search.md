@@ -38,9 +38,9 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `es-curl-get-search` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/(?:[^\s/]+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
-| `es-curl-get-cat` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/_cat/\S+` |
-| `es-curl-get-cluster-health` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/_cluster/health\b` |
+| `es-curl-get-search` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST\|PUT)\b)(?=.*(?:elastic\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/(?:[^\s/]+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
+| `es-curl-get-cat` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST\|PUT)\b)(?=.*(?:elastic\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/_cat/\S+` |
+| `es-curl-get-cluster-health` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST\|PUT)\b)(?=.*(?:elastic\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:elastic\|:9200)[^\s'\"]*/_cluster/health\b` |
 | `es-http-get-search` | `http\s+GET\s+(?:https?://)?\S*(?:elastic\|:9200)\S*/(?:\S+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
 | `es-http-get-cat` | `http\s+GET\s+(?:https?://)?\S*(?:elastic\|:9200)\S*/_cat/\S+` |
 | `es-http-get-cluster-health` | `http\s+GET\s+(?:https?://)?\S*(?:elastic\|:9200)\S*/_cluster/health\b` |
@@ -111,9 +111,9 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `os-curl-get-search` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/(?:[^\s/]+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
-| `os-curl-get-cat` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/_cat/\S+` |
-| `os-curl-get-cluster-health` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/_cluster/health\b` |
+| `os-curl-get-search` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST)\b)(?=.*(?:opensearch\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/(?:[^\s/]+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
+| `os-curl-get-cat` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST)\b)(?=.*(?:opensearch\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/_cat/\S+` |
+| `os-curl-get-cluster-health` | `(?i)^(?!(?=.*-X\s*(?:DELETE\|POST)\b)(?=.*(?:opensearch\|:9200)))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:opensearch\|:9200)[^\s'\"]*/_cluster/health\b` |
 | `os-http-get-search` | `http\s+GET\s+(?:https?://)?\S*(?:opensearch\|:9200)\S*/(?:\S+/)?(?:_search\|_count\|_mapping\|_settings)\b` |
 | `os-http-get-cat` | `http\s+GET\s+(?:https?://)?\S*(?:opensearch\|:9200)\S*/_cat/\S+` |
 | `os-http-get-cluster-health` | `http\s+GET\s+(?:https?://)?\S*(?:opensearch\|:9200)\S*/_cluster/health\b` |
@@ -241,10 +241,10 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `meili-curl-get-stats` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/stats\b` |
-| `meili-curl-get-health` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/health\b` |
-| `meili-curl-get-version` | `curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/version\b` |
-| `meili-curl-search` | `curl\b.*-X\s*POST\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/indexes/[^\s/]+/search\b` |
+| `meili-curl-get-stats` | `(?i)^(?!(?=.*-X\s*DELETE\b)(?=.*(?:meili\|:7700)))(?!(?=.*-X\s*POST\b)(?=.*documents/delete-batch\b))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/stats\b` |
+| `meili-curl-get-health` | `(?i)^(?!(?=.*-X\s*DELETE\b)(?=.*(?:meili\|:7700)))(?!(?=.*-X\s*POST\b)(?=.*documents/delete-batch\b))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/health\b` |
+| `meili-curl-get-version` | `(?i)^(?!(?=.*-X\s*DELETE\b)(?=.*(?:meili\|:7700)))(?!(?=.*-X\s*POST\b)(?=.*documents/delete-batch\b))curl\b.*-X\s*GET\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/version\b` |
+| `meili-curl-search` | `(?i)^(?!(?=.*-X\s*DELETE\b)(?=.*(?:meili\|:7700)))(?!(?=.*-X\s*POST\b)(?=.*documents/delete-batch\b))curl\b.*-X\s*POST\b.*\b(?:https?://)?[^\s'\"]*(?:meili\|:7700)[^\s'\"]*/indexes/[^\s/]+/search\b` |
 | `meili-http-get-stats` | `http\s+GET\s+(?:https?://)?\S*(?:meili\|:7700)\S*/stats\b` |
 | `meili-http-get-health` | `http\s+GET\s+(?:https?://)?\S*(?:meili\|:7700)\S*/health\b` |
 | `meili-http-get-version` | `http\s+GET\s+(?:https?://)?\S*(?:meili\|:7700)\S*/version\b` |
@@ -287,4 +287,3 @@ risk_acknowledged = true
 ```
 
 ---
-

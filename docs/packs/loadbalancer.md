@@ -154,8 +154,8 @@ These patterns match safe commands that are always allowed:
 |--------------|----------|
 | `traefik-version` | `\btraefik\s+version(?=\s\|$)` |
 | `traefik-healthcheck` | `\btraefik\s+healthcheck(?=\s\|$)` |
-| `traefik-api-get` | `curl\b.*\s-X\s*GET\b.*\btraefik\b.*\b/api/` |
-| `traefik-api-read` | `curl\b(?!.*\s(?:-X\|--request)\s*(?:DELETE\|PUT\|POST\|PATCH)\b).*\btraefik\b.*\b/api/(?:overview\|entrypoints\|routers\|services\|middlewares\|version\|rawdata)` |
+| `traefik-api-get` | `(?i)^(?!(?=.*(?:-X\s*\|--request(?:=\|\s+))DELETE\b)(?=.*\btraefik\b.*\b/api/))curl\b.*(?:-X\s*\|--request(?:=\|\s+))GET\b.*\btraefik\b.*\b/api/` |
+| `traefik-api-read` | `curl\b(?!.*\s(?:-X\s*\|--request(?:=\|\s+))(?:DELETE\|PUT\|POST\|PATCH)\b).*\btraefik\b.*\b/api/(?:overview\|entrypoints\|routers\|services\|middlewares\|version\|rawdata)` |
 | `docker-traefik-inspect` | `docker\b(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:inspect\|logs)\s+.*\btraefik\b` |
 | `kubectl-traefik-get` | `kubectl\b(?:\s+--?\S+(?:\s+\S+)?)*\s+(?:get\|describe)\s+.*\bingressroute` |
 
@@ -259,4 +259,3 @@ risk_acknowledged = true
 ```
 
 ---
-
