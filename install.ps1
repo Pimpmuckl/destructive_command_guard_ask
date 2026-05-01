@@ -79,6 +79,12 @@ function Get-ObjectPropertyValue {
   $prop.Value
 }
 
+function Test-ObjectPropertyExists {
+  param([object]$Object, [string]$Name)
+
+  $null -ne $Object -and $null -ne $Object.PSObject.Properties[$Name]
+}
+
 function Set-ObjectPropertyValue {
   param([object]$Object, [string]$Name, [object]$Value)
 
@@ -167,12 +173,25 @@ function Configure-CodexHook {
     throw "Codex hooks.json must contain a JSON object; leaving it unchanged: $hooksFile"
   }
 
+  $hooksExists = Test-ObjectPropertyExists $config "hooks"
+  $hooks = Get-ObjectPropertyValue $config "hooks"
+  if ($hooksExists -and -not (Test-JsonObject $hooks)) {
+    throw "Codex hooks.json hooks must contain a JSON object; leaving it unchanged: $hooksFile"
+  }
+
+  if ($hooksExists) {
+    $preToolUseExists = Test-ObjectPropertyExists $hooks "PreToolUse"
+    $preToolUse = Get-ObjectPropertyValue $hooks "PreToolUse"
+    if ($preToolUseExists -and -not ($preToolUse -is [array])) {
+      throw "Codex hooks.json PreToolUse must contain a list; leaving it unchanged: $hooksFile"
+    }
+  }
+
   if (Test-CodexHookAlreadyCurrent $config $DcgPath) {
     return "already"
   }
 
-  $hooks = Get-ObjectPropertyValue $config "hooks"
-  if (-not (Test-JsonObject $hooks)) {
+  if (-not $hooksExists) {
     $hooks = [pscustomobject][ordered]@{}
     Set-ObjectPropertyValue $config "hooks" $hooks
   }
