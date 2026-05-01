@@ -730,6 +730,7 @@ unconfigure_cursor() {
         if command -v python3 >/dev/null 2>&1; then
             python3 - "$hooks_json" "$hook_script" <<'PYEOF'
 import json
+import os
 import shlex
 import sys
 
