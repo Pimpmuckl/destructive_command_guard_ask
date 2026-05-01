@@ -9,9 +9,21 @@ Repository: <https://github.com/Dicklesworthstone/destructive_command_guard>
 
 ---
 
-## [Unreleased] (after v0.4.7)
+## [Unreleased] (after v0.4.8)
 
 No unreleased changes yet.
+
+## [v0.4.8](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.8) -- 2026-05-01 [Release]
+
+Patch release after v0.4.7 for a CLI environment-variable parser fix that needs
+to ship in prebuilt binaries.
+
+### CLI Reliability
+
+- Accepted documented truthy and falsey values for global boolean environment
+  flags such as `DCG_NO_COLOR=1`, `DCG_QUIET=1`,
+  `DCG_LEGACY_OUTPUT=1`, and `DCG_NO_SUGGESTIONS=1` instead of letting clap
+  reject `1` as an invalid boolean.
 
 ## [v0.4.7](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.7) -- 2026-05-01 [Release]
 
