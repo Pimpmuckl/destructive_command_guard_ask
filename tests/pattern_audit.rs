@@ -556,6 +556,17 @@ fn test_audit_backtracking_requirements() {
             ]),
         ),
         (
+            "monitoring.prometheus",
+            HashSet::from([
+                "grafana-api-delete-alert-notification",
+                "grafana-api-delete-dashboard",
+                "grafana-api-delete-datasource",
+                "grafana-api-get",
+                "prometheus-api-get",
+                "prometheus-tsdb-delete-series",
+            ]),
+        ),
+        (
             "monitoring.splunk",
             HashSet::from(["splunk-list", "splunk-search", "splunk-show"]),
         ),

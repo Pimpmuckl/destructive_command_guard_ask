@@ -52,11 +52,11 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         ),
         safe_pattern!(
             "prometheus-api-get",
-            r"(?i)curl\s+.*(?:-X|--request)\s+GET\b.*\/api\/v1\/"
+            r"(?i)^(?!(?=.*(?:-X|--request)\s+(?:POST|DELETE)\b)(?=.*(?:/api/v1/admin/tsdb/delete_series\b|/api/(?:dashboards|datasources|alert-notifications)/)))curl\s+.*(?:-X|--request)\s+GET\b.*\/api\/v1\/"
         ),
         safe_pattern!(
             "grafana-api-get",
-            r"(?i)curl\s+.*(?:-X|--request)\s+GET\b.*\/api\/"
+            r"(?i)^(?!(?=.*(?:-X|--request)\s+(?:POST|DELETE)\b)(?=.*(?:/api/v1/admin/tsdb/delete_series\b|/api/(?:dashboards|datasources|alert-notifications)/)))curl\s+.*(?:-X|--request)\s+GET\b.*\/api\/"
         ),
     ]
 }
@@ -78,7 +78,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "prometheus-tsdb-delete-series",
-            r"(?i)curl\s+.*(?:-X|--request)\s+POST\b.*\/api\/v1\/admin\/tsdb\/delete_series\b",
+            r"(?i)\bcurl\b(?=.*(?:-X|--request)\s+POST\b)(?=.*\/api\/v1\/admin\/tsdb\/delete_series\b).*",
             "Prometheus TSDB delete_series permanently deletes time series data.",
             Critical,
             "The delete_series admin endpoint permanently removes time series data matching \
@@ -116,7 +116,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "grafana-api-delete-dashboard",
-            r"(?i)curl\s+.*(?:-X|--request)\s+DELETE\b.*\/api\/dashboards\/",
+            r"(?i)\bcurl\b(?=.*(?:-X|--request)\s+DELETE\b)(?=.*\/api\/dashboards\/).*",
             "Grafana API DELETE /api/dashboards/... deletes dashboards.",
             High,
             "Deleting a Grafana dashboard removes all panels, queries, and configuration. \
@@ -128,7 +128,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "grafana-api-delete-datasource",
-            r"(?i)curl\s+.*(?:-X|--request)\s+DELETE\b.*\/api\/datasources\/",
+            r"(?i)\bcurl\b(?=.*(?:-X|--request)\s+DELETE\b)(?=.*\/api\/datasources\/).*",
             "Grafana API DELETE /api/datasources/... deletes datasources.",
             High,
             "Deleting a datasource breaks all dashboards and alerts using it. Panels will \
@@ -140,7 +140,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "grafana-api-delete-alert-notification",
-            r"(?i)curl\s+.*(?:-X|--request)\s+DELETE\b.*\/api\/alert-notifications\/",
+            r"(?i)\bcurl\b(?=.*(?:-X|--request)\s+DELETE\b)(?=.*\/api\/alert-notifications\/).*",
             "Grafana API DELETE /api/alert-notifications/... deletes alert notification channels.",
             High,
             "Deleting a notification channel stops alert delivery to that destination. \
@@ -220,6 +220,73 @@ mod tests {
         assert_blocks_with_pattern(
             &pack,
             "curl -X DELETE http://grafana.local/api/alert-notifications/1",
+            "grafana-api-delete-alert-notification",
+        );
+    }
+
+    #[test]
+    fn curl_get_safe_patterns_do_not_mask_destructive_api_methods() {
+        let pack = create_pack();
+
+        let prometheus_delete_series = "curl -X GET http://localhost:9090/api/v1/query?query=up \
+            -X POST http://localhost:9090/api/v1/admin/tsdb/delete_series?match[]=up";
+        assert_no_safe_match(&pack, prometheus_delete_series);
+        assert_blocks_with_pattern(
+            &pack,
+            prometheus_delete_series,
+            "prometheus-tsdb-delete-series",
+        );
+
+        let grafana_delete_dashboard = "curl -X GET http://grafana.local/api/search \
+            -X DELETE http://grafana.local/api/dashboards/uid/abc";
+        assert_no_safe_match(&pack, grafana_delete_dashboard);
+        assert_blocks_with_pattern(
+            &pack,
+            grafana_delete_dashboard,
+            "grafana-api-delete-dashboard",
+        );
+
+        let grafana_delete_datasource = "curl --request GET http://grafana.local/api/search \
+            --request DELETE http://grafana.local/api/datasources/1";
+        assert_no_safe_match(&pack, grafana_delete_datasource);
+        assert_blocks_with_pattern(
+            &pack,
+            grafana_delete_datasource,
+            "grafana-api-delete-datasource",
+        );
+
+        let grafana_delete_dashboard_url_first = "curl -X GET http://grafana.local/api/search \
+            http://grafana.local/api/dashboards/uid/abc -X DELETE";
+        assert_no_safe_match(&pack, grafana_delete_dashboard_url_first);
+        assert_blocks_with_pattern(
+            &pack,
+            grafana_delete_dashboard_url_first,
+            "grafana-api-delete-dashboard",
+        );
+    }
+
+    #[test]
+    fn curl_destructive_api_patterns_do_not_require_method_before_url() {
+        let pack = create_pack();
+
+        assert_blocks_with_pattern(
+            &pack,
+            "curl http://localhost:9090/api/v1/admin/tsdb/delete_series?match[]=up -X POST",
+            "prometheus-tsdb-delete-series",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "curl http://grafana.local/api/dashboards/uid/abc -X DELETE",
+            "grafana-api-delete-dashboard",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "curl http://grafana.local/api/datasources/1 --request DELETE",
+            "grafana-api-delete-datasource",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "curl http://grafana.local/api/alert-notifications/1 --request DELETE",
             "grafana-api-delete-alert-notification",
         );
     }
