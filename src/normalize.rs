@@ -730,6 +730,9 @@ fn strip_command_wrapper(command: &str) -> Option<(String, StrippedWrapper)> {
     if remaining.is_empty() {
         return None;
     }
+    if starts_with_shell_redirection(remaining) {
+        return None;
+    }
 
     let stripped_text = trimmed[..trimmed.len() - remaining.len()]
         .trim_end()
@@ -742,6 +745,24 @@ fn strip_command_wrapper(command: &str) -> Option<(String, StrippedWrapper)> {
             stripped_text,
         },
     ))
+}
+
+fn starts_with_shell_redirection(s: &str) -> bool {
+    let bytes = s.trim_start().as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+
+    if matches!(bytes[0], b'>' | b'<') || bytes.starts_with(b"&>") {
+        return true;
+    }
+
+    let mut idx = 0;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+
+    idx > 0 && idx < bytes.len() && matches!(bytes[idx], b'>' | b'<')
 }
 
 #[must_use]
@@ -1449,12 +1470,17 @@ fn attached_redirection_index(token: &str) -> Option<usize> {
                 && idx + 1 < bytes.len()
                 && bytes[idx + 1] == b'>'
                 && idx > 0
+                && redirection_prefix_looks_like_command(&bytes[..idx])
                 && !bytes[idx - 1].is_ascii_whitespace() =>
             {
                 return Some(idx);
             }
             b'>' | b'<'
-                if !in_single && !in_double && idx > 0 && !bytes[idx - 1].is_ascii_whitespace() =>
+                if !in_single
+                    && !in_double
+                    && idx > 0
+                    && redirection_prefix_looks_like_command(&bytes[..idx])
+                    && !bytes[idx - 1].is_ascii_whitespace() =>
             {
                 return Some(idx);
             }
@@ -1463,6 +1489,12 @@ fn attached_redirection_index(token: &str) -> Option<usize> {
     }
 
     None
+}
+
+fn redirection_prefix_looks_like_command(prefix: &[u8]) -> bool {
+    prefix
+        .iter()
+        .any(|b| !matches!(b, b'&' | b'<' | b'>' | b'0'..=b'9'))
 }
 
 #[inline]
@@ -2268,6 +2300,18 @@ fn test_attached_redirection_normalization_after_quoted_command() {
     assert_eq!(
         normalize_command("git>>/dev/null reset --hard").as_ref(),
         "git >>/dev/null reset --hard"
+    );
+
+    assert_eq!(
+        normalize_command_word_token(">>"),
+        None,
+        "standalone append redirect must not be rewritten as a command token"
+    );
+
+    assert_eq!(
+        normalize_command("command >> /usr/local/log").as_ref(),
+        "command >> /usr/local/log",
+        "pure redirection after command builtin is not a wrapper invocation"
     );
 }
 

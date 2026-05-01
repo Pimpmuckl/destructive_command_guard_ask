@@ -54,6 +54,33 @@ fn dd_dev_block_device_blocked() {
     assert!(output.contains("deny"), "Bypass: '{cmd}' was allowed!");
 }
 
+#[test]
+fn parted_print_free_allowed() {
+    let cmd = "parted /dev/sda print free";
+    let output = run_hook(cmd);
+
+    assert!(
+        !output.contains("deny"),
+        "False positive: '{cmd}' was blocked! Output: {output}"
+    );
+}
+
+#[test]
+fn parted_print_then_rm_blocked() {
+    let cmd = "parted /dev/sda print rm 1";
+    let output = run_hook(cmd);
+
+    assert!(output.contains("deny"), "Bypass: '{cmd}' was allowed!");
+}
+
+#[test]
+fn parted_scripted_mklabel_blocked() {
+    let cmd = "parted -s /dev/sda mklabel gpt";
+    let output = run_hook(cmd);
+
+    assert!(output.contains("deny"), "Bypass: '{cmd}' was allowed!");
+}
+
 // --- mdadm tests ---
 #[test]
 fn mdadm_detail_allowed() {

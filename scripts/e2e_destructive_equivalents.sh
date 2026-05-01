@@ -791,6 +791,8 @@ scenario_system_disk_default() {
     # fdisk / parted (partition editing).
     assert_blocked 'fdisk /dev/sda'                'system.disk:fdisk-edit'  'high'
     assert_blocked 'parted /dev/sda mklabel gpt'   'system.disk:parted-modify' 'high'
+    assert_blocked 'parted -s /dev/sda mklabel gpt' 'system.disk:parted-modify' 'high'
+    assert_blocked 'parted /dev/sda print rm 1'    'system.disk:parted-modify' 'high'
     # dd to block devices (system.disk's scope, not core.filesystem's).
     assert_blocked 'dd if=/dev/zero of=/dev/sda bs=1M' 'system.disk:dd-device' 'high'
     # mdadm zero-superblock (RAID destruction).
@@ -809,6 +811,7 @@ scenario_system_disk_default() {
     assert_allowed 'lsblk'
     assert_allowed 'df -h'
     assert_allowed 'parted -l'
+    assert_allowed 'parted /dev/sda print free'
     assert_allowed 'cat /proc/partitions'
     assert_allowed 'lvs'
     assert_allowed 'vgs'

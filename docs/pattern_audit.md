@@ -1021,7 +1021,7 @@ Generated: 2026-04-30T22:58:33.693996
 | safe | `dmsetup-table` | Found '(?=' | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+table(?=\s\|$)` |
 | safe | `dmsetup-deps` | Found '(?=' | `dmsetup\b(?:\s+--?\S+(?:\s+\S+)?)*\s+deps(?=\s\|$)` |
 | destructive | `fdisk-edit` | Found '!' | `fdisk\s+['"]?/dev/(?!.*-l)` |
-| destructive | `parted-modify` | Found '!' | `parted\s+['"]?/dev/\S+\s+(?!print)` |
+| destructive | `parted-modify` | Found '!' | `parted\b[^\n;&\|]*?['"]?/dev/\S+['"]?(?:\s+--)?\s...` |
 
 ## `src/packs/system/permissions.rs`
 

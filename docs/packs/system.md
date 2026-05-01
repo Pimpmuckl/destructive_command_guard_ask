@@ -50,7 +50,7 @@ These patterns match safe commands that are always allowed:
 | `dd-discard` | `dd\s+.*of=['"]?/dev/(?:null\|zero\|full)['"]?(?:\s\|$)` |
 | `lsblk` | `\blsblk\b` |
 | `fdisk-list` | `fdisk\s+-l` |
-| `parted-print` | `parted\s+.*print` |
+| `parted-print` | `parted\b(?:\s+--?\S+)*\s+(?:['"]?/dev/\S+['"]?\s+)?print(?:\s+(?:devices\|free\|list\|all\|\d+))?\s*$` |
 | `blkid` | `\bblkid\b` |
 | `df` | `\bdf\b` |
 | `mount-list` | `\bmount\s*$` |

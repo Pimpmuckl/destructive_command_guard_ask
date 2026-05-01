@@ -66,8 +66,13 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         safe_pattern!("lsblk", r"\blsblk\b"),
         // fdisk -l (list) is safe
         safe_pattern!("fdisk-list", r"fdisk\s+-l"),
-        // parted print is safe
-        safe_pattern!("parted-print", r"parted\s+.*print"),
+        // parted print is safe. Keep this tight because safe patterns run
+        // before destructive patterns, and GNU Parted accepts multiple
+        // commands after the device.
+        safe_pattern!(
+            "parted-print",
+            r#"parted\b(?:\s+--?\S+)*\s+(?:['"]?/dev/\S+['"]?\s+)?print(?:\s+(?:devices|free|list|all|\d+))?\s*$"#
+        ),
         // blkid is safe (read-only)
         safe_pattern!("blkid", r"\bblkid\b"),
         // df is safe
@@ -191,10 +196,12 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
             r#"fdisk\s+['"]?/dev/(?!.*-l)"#,
             "fdisk can modify partition tables and cause data loss."
         ),
-        // parted (except print)
+        // parted partition edits. GNU Parted accepts global options before
+        // the device and one or more commands after it, so an initial read-only
+        // command like `print` must not hide a later mutating command.
         destructive_pattern!(
             "parted-modify",
-            r#"parted\s+['"]?/dev/\S+\s+(?!print)"#,
+            r#"parted\b[^\n;&|]*?['"]?/dev/\S+['"]?(?:\s+--)?\s+(?:(?!\s*(?:align-check|help|h|print|p|quit|q|select|unit|u)\b)|[^\n;&|]*\b(?:print|p)\b\s+(?:(?:devices|free|list|all|\d+)\s+\S+|(?!devices\b|free\b|list\b|all\b|\d+\b)\S+)|[^\n;&|]*\b(?:disk_set|disk_toggle|mklabel|mktable|mkpart|name|rescue|resizepart|rm|set|toggle|type)\b)"#,
             "parted can modify partition tables and cause data loss."
         ),
         // mkfs (format filesystem)
@@ -492,6 +499,56 @@ mod tests {
             .check("dmsetup --noudevsync remove my-dev")
             .expect("dmsetup with noudevsync should still block");
         assert_eq!(matched.name, Some("dmsetup-remove"));
+    }
+
+    #[test]
+    fn parted_print_only_forms_remain_allowed() {
+        let pack = create_pack();
+        let safe_prints = [
+            "parted /dev/sda print",
+            "parted /dev/sda print free",
+            "parted /dev/sda print all",
+            "parted -s /dev/sda print 1",
+        ];
+
+        for cmd in safe_prints {
+            assert!(
+                pack.matches_safe(cmd),
+                "read-only parted print form should match safe pattern: {cmd}"
+            );
+            assert!(
+                pack.check(cmd).is_none(),
+                "read-only parted print form should be allowed: {cmd}"
+            );
+        }
+
+        assert_no_match(&pack, "parted /dev/sda unit s print free");
+        assert_no_match(&pack, "parted -l");
+    }
+
+    #[test]
+    fn parted_print_prefix_and_global_flags_do_not_bypass_modifications() {
+        let pack = create_pack();
+        let destructive = [
+            "parted /dev/sda print rm 1",
+            "parted /dev/sda p rm 1",
+            "parted /dev/sda print mkla gpt",
+            "parted /dev/sda print free rm 1",
+            "parted /dev/sda print mklabel gpt",
+            "parted /dev/sda print mkpart primary ext4 1MiB 1GiB",
+            "parted /dev/sda unit s rm 1",
+            "parted /dev/sda unit s p mkla gpt",
+            "parted -s /dev/sda mklabel gpt",
+            "parted --script /dev/sda rm 1",
+            "parted -s /dev/sdX -- mklabel msdos mkpart primary fat32 64s 4MiB",
+        ];
+
+        for cmd in destructive {
+            let matched = pack
+                .check(cmd)
+                .unwrap_or_else(|| panic!("parted mutation must block: {cmd}"));
+            assert_eq!(matched.name, Some("parted-modify"), "wrong rule for {cmd}");
+        }
     }
 
     #[test]

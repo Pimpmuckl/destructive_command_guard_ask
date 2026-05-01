@@ -74,5 +74,31 @@ mod tests {
             result.is_denied(),
             "Bypass: git >/dev/null reset --hard should be denied"
         );
+
+        // Regression: normalizing the `command` builtin wrapper must not turn
+        // append redirection into a synthetic truncate redirection.
+        let result = evaluate_command(
+            "command >> /usr/local/log",
+            &config,
+            &enabled_keywords,
+            &compiled_overrides,
+            &allowlists,
+        );
+        assert!(
+            result.is_allowed(),
+            "append redirect via command builtin should be allowed"
+        );
+
+        let result = evaluate_command(
+            "command >>/dev/null git reset --hard",
+            &config,
+            &enabled_keywords,
+            &compiled_overrides,
+            &allowlists,
+        );
+        assert!(
+            result.is_denied(),
+            "Bypass: command builtin with leading append redirect should still expose git reset --hard"
+        );
     }
 }
