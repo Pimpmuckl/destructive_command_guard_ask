@@ -9960,7 +9960,7 @@ fn install_dcg_hook_into_settings(
         remove_dcg_hooks_from_pre_tool_use(pre_tool_use);
     }
 
-    pre_tool_use.push(hook_config);
+    pre_tool_use.insert(0, hook_config);
     Ok(true)
 }
 
@@ -13861,6 +13861,24 @@ mod tests {
     }
 
     #[test]
+    fn install_into_settings_inserts_dcg_before_existing_hooks() {
+        let other = serde_json::json!({
+            "matcher": "Bash",
+            "hooks": [{ "type": "command", "command": "other-hook" }]
+        });
+        let mut settings = serde_json::json!({
+            "hooks": { "PreToolUse": [ other ] }
+        });
+
+        let changed = install_dcg_hook_into_settings(&mut settings, false).expect("install ok");
+        assert!(changed);
+
+        let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert!(is_dcg_hook_entry(&pre[0]), "dcg hook should run first");
+        assert!(entry_has_hook_command(&pre[1], "other-hook"));
+    }
+
+    #[test]
     fn install_into_settings_force_reinstalls_single_entry() {
         let other = serde_json::json!({
             "matcher": "Bash",
@@ -13875,6 +13893,7 @@ mod tests {
 
         let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(pre.iter().filter(|e| is_dcg_hook_entry(e)).count(), 1);
+        assert!(is_dcg_hook_entry(&pre[0]), "dcg hook should run first");
         assert!(
             pre.iter().any(|e| entry_has_hook_command(e, "other-hook")),
             "should retain other hook entry"
@@ -13900,6 +13919,7 @@ mod tests {
 
         let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(pre.iter().filter(|e| is_dcg_hook_entry(e)).count(), 1);
+        assert!(is_dcg_hook_entry(&pre[0]), "dcg hook should run first");
         assert!(
             pre.iter().any(|e| entry_has_hook_command(e, "other-hook")),
             "force reinstall should retain non-dcg hooks from mixed hook entries"
