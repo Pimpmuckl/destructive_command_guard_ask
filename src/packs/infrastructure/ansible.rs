@@ -27,9 +27,10 @@ pub fn create_pack() -> Pack {
 fn create_safe_patterns() -> Vec<SafePattern> {
     vec![
         // --check is dry-run mode (safe)
-        safe_pattern!("ansible-check", r"ansible(?:-playbook)?\s+.*--check"),
-        // --diff shows changes (safe)
-        safe_pattern!("ansible-diff", r"ansible(?:-playbook)?\s+.*--diff"),
+        safe_pattern!(
+            "ansible-check",
+            r"ansible(?:-playbook)?\s+.*--check(?:\s|$)"
+        ),
         // --list-hosts just lists (safe)
         safe_pattern!(
             "ansible-list-hosts",
@@ -96,7 +97,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         // ansible-playbook targeting all hosts without limit
         destructive_pattern!(
             "playbook-all-hosts",
-            r"ansible-playbook\s+(?!.*(?:--check|--limit|--diff)).*-i\s+\S+\s+\S+\.ya?ml",
+            r"ansible-playbook\s+(?!.*(?:--check(?:\s|$)|--limit)).*-i\s+\S+\s+\S+\.ya?ml",
             "ansible-playbook without --check or --limit may affect all hosts. Use --check first.",
             High,
             "Running ansible-playbook without --check or --limit applies changes to all hosts in \
@@ -141,7 +142,7 @@ mod tests {
         let pack = create_pack();
         assert_allows(&pack, "ansible --check -i inventory.ini all -m ping");
         assert_allows(&pack, "ansible-playbook --check deploy.yml");
-        assert_allows(&pack, "ansible-playbook --diff site.yml");
+        assert_allows(&pack, "ansible-playbook --check --diff site.yml");
         assert_allows(&pack, "ansible-playbook --list-hosts site.yml");
         assert_allows(&pack, "ansible-playbook --list-tasks site.yml");
         assert_allows(&pack, "ansible-playbook --syntax-check site.yml");
@@ -204,7 +205,30 @@ mod tests {
             &pack,
             "ansible-playbook --limit web1 -i production deploy.yml",
         );
-        assert_allows(&pack, "ansible-playbook --diff -i production deploy.yml");
+    }
+
+    #[test]
+    fn ansible_diff_alone_does_not_suppress_destructive_patterns() {
+        let pack = create_pack();
+
+        assert_no_safe_match(&pack, "ansible-playbook --diff -i production deploy.yml");
+        assert_blocks_with_pattern(
+            &pack,
+            "ansible-playbook --diff -i production deploy.yml",
+            "playbook-all-hosts",
+        );
+        assert_no_safe_match(&pack, "ansible all --diff -m shell -a 'reboot'");
+        assert_blocks_with_pattern(
+            &pack,
+            "ansible all --diff -m shell -a 'reboot'",
+            "shell-reboot",
+        );
+        assert_no_safe_match(&pack, r"ansible all --diff -e 'action=delete' -m debug");
+        assert_blocks_with_pattern(
+            &pack,
+            r"ansible all --diff -e 'action=delete' -m debug",
+            "extra-vars-delete",
+        );
     }
 
     #[test]

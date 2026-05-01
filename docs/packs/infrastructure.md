@@ -98,8 +98,7 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `ansible-check` | `ansible(?:-playbook)?\s+.*--check` |
-| `ansible-diff` | `ansible(?:-playbook)?\s+.*--diff` |
+| `ansible-check` | `ansible(?:-playbook)?\s+.*--check(?:\s\|$)` |
 | `ansible-list-hosts` | `ansible(?:-playbook)?\s+.*--list-hosts` |
 | `ansible-list-tasks` | `ansible(?:-playbook)?\s+.*--list-tasks` |
 | `ansible-syntax` | `ansible(?:-playbook)?\s+.*--syntax-check` |

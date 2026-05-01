@@ -1236,6 +1236,12 @@ test_command_with_packs "redis-cli GET key" "allow" "database.redis" "redis-cli 
 test_command_with_packs "terraform destroy" "block" "infrastructure.terraform" "terraform destroy (terraform pack enabled)"
 test_command_with_packs "terraform plan" "allow" "infrastructure.terraform" "terraform plan (terraform pack enabled, safe command)"
 
+# Ansible pack tests
+test_command_with_packs "ansible-playbook --check --diff -i production deploy.yml" "allow" "infrastructure.ansible" "ansible-playbook --check --diff (ansible pack enabled, safe command)"
+test_command_with_packs "ansible-playbook --diff -i production deploy.yml" "block" "infrastructure.ansible" "ansible-playbook --diff without check or limit (ansible pack enabled)"
+test_command_with_packs "ansible all --diff -m shell -a 'reboot'" "block" "infrastructure.ansible" "ansible --diff shell reboot (ansible pack enabled)"
+test_command_with_packs "ansible all --diff -e 'action=delete' -m debug" "warn" "infrastructure.ansible" "ansible --diff destructive extra vars (ansible pack enabled)"
+
 # GitHub Actions pack tests
 test_command_with_packs "gh secret delete FOO" "block" "cicd.github_actions" "gh secret delete (github actions pack enabled)"
 test_command_with_packs "gh -R owner/repo secret remove FOO" "block" "cicd.github_actions" "gh -R ... secret remove (github actions pack enabled)"
