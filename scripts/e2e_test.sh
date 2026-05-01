@@ -1151,6 +1151,10 @@ test_command_with_packs "aws s3 rb s3://bucket" "block" "storage.s3" "aws s3 rb 
 test_command_with_packs "aws s3 rb s3://bucket --force" "block" "storage.s3" "aws s3 rb --force (s3 pack enabled)"
 test_command_with_packs "aws s3 rm s3://bucket --recursive" "block" "storage.s3" "aws s3 rm --recursive (s3 pack enabled)"
 test_command_with_packs "aws s3 sync s3://src s3://dest --delete" "block" "storage.s3" "aws s3 sync --delete (s3 pack enabled)"
+test_command_with_packs "aws s3 rm s3://bucket --recursive --dryrun" "allow" "storage.s3" "aws s3 rm --dryrun preview (s3 pack enabled, safe command)"
+test_command_with_packs "aws s3 sync s3://src s3://dest --delete --dryrun" "allow" "storage.s3" "aws s3 sync --delete --dryrun preview (s3 pack enabled, safe command)"
+test_command_with_packs "aws s3 rm s3://bucket --recursive --dryrun=false" "block" "storage.s3" "aws s3 rm --dryrun=false (s3 pack enabled)"
+test_command_with_packs "aws s3 sync s3://src s3://dest --delete --dryrun=false" "block" "storage.s3" "aws s3 sync --delete --dryrun=false (s3 pack enabled)"
 test_command_with_packs "aws s3 sync s3://src s3://dest" "allow" "storage.s3" "aws s3 sync (s3 pack enabled, safe command)"
 test_command_with_packs "aws s3 ls s3://bucket" "allow" "storage.s3" "aws s3 ls (s3 pack enabled, safe command)"
 

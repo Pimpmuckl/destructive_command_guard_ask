@@ -47,6 +47,18 @@ fn create_safe_patterns() -> Vec<SafePattern> {
         ),
         safe_pattern!("s3-mb", r"aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+mb(?=\s|$)"),
         safe_pattern!(
+            "s3-rm-dryrun",
+            r"aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+rm(?=\s|$)[^\n;&|]*\s--dryrun(?=\s|$)"
+        ),
+        safe_pattern!(
+            "s3-sync-delete-dryrun",
+            r"aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s|$)[^\n;&|]*\s--delete(?=\s|$)[^\n;&|]*\s--dryrun(?=\s|$)"
+        ),
+        safe_pattern!(
+            "s3-sync-dryrun-delete",
+            r"aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s|$)[^\n;&|]*\s--dryrun(?=\s|$)[^\n;&|]*\s--delete(?=\s|$)"
+        ),
+        safe_pattern!(
             "s3api-list-objects",
             r"aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+list-objects(?:-v2)?(?=\s|$)"
         ),
@@ -174,6 +186,10 @@ mod tests {
         assert_safe_pattern_matches(&pack, "aws s3 cp file s3://bucket/key");
         assert_safe_pattern_matches(&pack, "aws s3 presign s3://bucket/key");
         assert_safe_pattern_matches(&pack, "aws s3 mb s3://new-bucket");
+        assert_safe_pattern_matches(&pack, "aws s3 rm s3://bucket/key --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 rm s3://bucket --recursive --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 sync ./dist s3://bucket --delete --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 sync ./dist s3://bucket --dryrun --delete");
         assert_safe_pattern_matches(&pack, "aws s3api list-objects-v2 --bucket bucket");
         assert_safe_pattern_matches(&pack, "aws s3api get-object --bucket b --key k out");
         assert_safe_pattern_matches(&pack, "aws s3api head-object --bucket b --key k");
@@ -289,10 +305,41 @@ mod tests {
         assert_safe_pattern_matches(&pack, "aws s3 cp file.txt s3://bucket/key");
         assert_safe_pattern_matches(&pack, "aws s3 presign s3://bucket/key");
         assert_safe_pattern_matches(&pack, "aws s3 mb s3://new-bucket");
+        assert_safe_pattern_matches(&pack, "aws s3 rm s3://bucket/key --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 rm s3://bucket --recursive --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 sync ./dist s3://bucket --delete --dryrun");
+        assert_safe_pattern_matches(&pack, "aws s3 sync ./dist s3://bucket --dryrun --delete");
         assert_safe_pattern_matches(&pack, "aws s3api list-objects-v2 --bucket bucket");
         assert_safe_pattern_matches(&pack, "aws s3api list-objects --bucket bucket");
         assert_safe_pattern_matches(&pack, "aws s3api get-object --bucket b --key k out");
         assert_safe_pattern_matches(&pack, "aws s3api head-object --bucket b --key k");
+    }
+
+    #[test]
+    fn s3_dryrun_false_does_not_bypass_destructive_patterns() {
+        let pack = create_pack();
+        assert_no_safe_match(&pack, "aws s3 rm s3://bucket/key --dryrun=false");
+        assert_blocks_with_pattern(&pack, "aws s3 rm s3://bucket/key --dryrun=false", "s3-rm");
+        assert_no_safe_match(&pack, "aws s3 rm s3://bucket/key --no-dryrun");
+        assert_blocks_with_pattern(&pack, "aws s3 rm s3://bucket/key --no-dryrun", "s3-rm");
+        assert_no_safe_match(
+            &pack,
+            "aws s3 sync ./dist s3://bucket --delete --dryrun=false",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "aws s3 sync ./dist s3://bucket --delete --dryrun=false",
+            "s3-sync-delete",
+        );
+        assert_no_safe_match(
+            &pack,
+            "aws s3 sync ./dist s3://bucket --dryrun=false --delete",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "aws s3 sync ./dist s3://bucket --dryrun=false --delete",
+            "s3-sync-delete",
+        );
     }
 
     #[test]

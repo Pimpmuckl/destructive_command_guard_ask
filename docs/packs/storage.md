@@ -39,6 +39,9 @@ These patterns match safe commands that are always allowed:
 | `s3-copy` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+cp(?=\s\|$)` |
 | `s3-presign` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+presign(?=\s\|$)` |
 | `s3-mb` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+mb(?=\s\|$)` |
+| `s3-rm-dryrun` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+rm(?=\s\|$)[^\n;&\|]*\s--dryrun(?=\s\|$)` |
+| `s3-sync-delete-dryrun` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s\|$)[^\n;&\|]*\s--delete(?=\s\|$)[^\n;&\|]*\s--dryrun(?=\s\|$)` |
+| `s3-sync-dryrun-delete` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s\|$)[^\n;&\|]*\s--dryrun(?=\s\|$)[^\n;&\|]*\s--delete(?=\s\|$)` |
 | `s3api-list-objects` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+list-objects(?:-v2)?(?=\s\|$)` |
 | `s3api-get-object` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+get-object(?=\s\|$)` |
 | `s3api-head-object` | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+head-object(?=\s\|$)` |

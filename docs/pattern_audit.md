@@ -983,6 +983,9 @@ Generated: 2026-04-30T22:58:33.693996
 | safe | `s3-copy` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+cp(?=\s\|$)` |
 | safe | `s3-presign` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+presign(?=\s\|$)` |
 | safe | `s3-mb` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+mb(?=\s\|$)` |
+| safe | `s3-rm-dryrun` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+rm(?=\s\|$)[^\n;&\|]*...` |
+| safe | `s3-sync-delete-dryrun` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s\|$)[^\n;&\|...` |
+| safe | `s3-sync-dryrun-delete` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3\s+sync(?=\s\|$)[^\n;&\|...` |
 | safe | `s3api-list-objects` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+list-objects(?:-v2...` |
 | safe | `s3api-get-object` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+get-object(?=\s\|$)` |
 | safe | `s3api-head-object` | Found '(?=' | `aws(?:\s+--?\S+(?:\s+\S+)?)*\s+s3api\s+head-object(?=\s\|$)` |
