@@ -381,7 +381,11 @@ impl ContextClassifier {
                             span_start = i;
                             stack.push(TokenizerState::Backtick);
                         }
-                        b'|' | b';' | b'&' => {
+                        b'|' | b';' | b'&'
+                            if !(byte == b'&'
+                                && i + 1 < len
+                                && bytes[i + 1] == b'>') =>
+                        {
                             // Check for operators
                             // For simple classification, treat as break.
                             if i > span_start {
@@ -3056,6 +3060,19 @@ mod tests {
         // otherwise data-only command such as echo.
         assert!(matches!(sanitized, std::borrow::Cow::Borrowed(_)));
         assert!(sanitized.as_ref().contains("rm -rf"));
+    }
+
+    #[test]
+    fn classifier_keeps_ampersand_redirection_with_command_span() {
+        for cmd in ["git&>/dev/null status", "git&>>/dev/null status"] {
+            let spans = classify_command(cmd);
+            let executable = spans.executable_text(cmd);
+
+            assert!(
+                executable.iter().any(|span| span.contains("git&>")),
+                "&> redirection must not be classified as a command separator: {cmd}"
+            );
+        }
     }
 
     #[test]
