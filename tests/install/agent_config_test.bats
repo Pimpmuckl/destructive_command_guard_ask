@@ -439,6 +439,7 @@ EOF
     "BeforeTool": [
       {
         "matcher": "run_shell_command",
+        "sequential": true,
         "hooks": [
           {"name": "dcg", "type": "command", "command": "/old/bin/dcg", "timeout": 5000},
           {"name": "other", "type": "command", "command": "atuin history start", "timeout": 5000}
@@ -476,6 +477,7 @@ with open(settings_file, "r") as f:
 before_tool = settings["hooks"]["BeforeTool"]
 shell_entries = [entry for entry in before_tool if entry.get("matcher") == "run_shell_command"]
 assert len(shell_entries) == 1, shell_entries
+assert shell_entries[0].get("sequential") is True, shell_entries[0]
 
 commands = [
     hook.get("command")
@@ -494,6 +496,75 @@ PYEOF
     GEMINI_SETTINGS="$HOME/.gemini/settings.json"
     setup_mock_gemini
     printf '%s\n' '{"hooks":{"BeforeTool":[' > "$GEMINI_SETTINGS"
+    local before
+    before=$(cat "$GEMINI_SETTINGS")
+
+    configure_gemini "$GEMINI_SETTINGS"
+    local rc=$?
+
+    log_test "GEMINI_STATUS: $GEMINI_STATUS"
+    log_test "GEMINI_FAILURE_REASON: ${GEMINI_FAILURE_REASON:-}"
+    log_test "Settings content: $(cat "$GEMINI_SETTINGS")"
+
+    [ "$rc" -eq 0 ]
+    [ "$GEMINI_STATUS" = "failed" ]
+    [[ "$GEMINI_FAILURE_REASON" == *"invalid"* ]]
+    [ "$(cat "$GEMINI_SETTINGS")" = "$before" ]
+    [ -z "$GEMINI_BACKUP" ]
+}
+
+@test "configure_gemini: non-object hooks is preserved and reports failed" {
+    log_test "Testing Gemini non-object hooks preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    GEMINI_SETTINGS="$HOME/.gemini/settings.json"
+    setup_mock_gemini
+    cat > "$GEMINI_SETTINGS" <<'EOF'
+{"hooks":["bad-shape"]}
+EOF
+    local before
+    before=$(cat "$GEMINI_SETTINGS")
+
+    configure_gemini "$GEMINI_SETTINGS"
+    local rc=$?
+
+    log_test "GEMINI_STATUS: $GEMINI_STATUS"
+    log_test "GEMINI_FAILURE_REASON: ${GEMINI_FAILURE_REASON:-}"
+    log_test "Settings content: $(cat "$GEMINI_SETTINGS")"
+
+    [ "$rc" -eq 0 ]
+    [ "$GEMINI_STATUS" = "failed" ]
+    [[ "$GEMINI_FAILURE_REASON" == *"invalid"* ]]
+    [ "$(cat "$GEMINI_SETTINGS")" = "$before" ]
+    [ -z "$GEMINI_BACKUP" ]
+}
+
+@test "configure_gemini: non-list BeforeTool is preserved and reports failed" {
+    log_test "Testing Gemini non-list BeforeTool preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    GEMINI_SETTINGS="$HOME/.gemini/settings.json"
+    setup_mock_gemini
+    cat > "$GEMINI_SETTINGS" <<'EOF'
+{
+  "hooks": {
+    "BeforeTool": {
+      "matcher": "run_shell_command",
+      "hooks": [
+        {"name": "dcg", "type": "command", "command": "/old/bin/dcg", "timeout": 5000}
+      ]
+    },
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {"name": "other", "type": "command", "command": "atuin history end", "timeout": 5000}
+        ]
+      }
+    ]
+  }
+}
+EOF
     local before
     before=$(cat "$GEMINI_SETTINGS")
 

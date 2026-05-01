@@ -1415,12 +1415,12 @@ if not isinstance(settings, dict):
 
 hooks_obj = settings.get("hooks", {})
 if not isinstance(hooks_obj, dict):
-    print("merge")
+    print("invalid")
     raise SystemExit(0)
 
 before_tool = hooks_obj.get("BeforeTool", [])
 if not isinstance(before_tool, list):
-    print("merge")
+    print("invalid")
     raise SystemExit(0)
 
 dcg_commands = []
@@ -1442,8 +1442,8 @@ PYEOF
 )
       if [ "$gemini_hook_state" = "invalid" ]; then
         GEMINI_STATUS="failed"
-        GEMINI_FAILURE_REASON="existing settings.json is invalid; left unchanged"
-        warn "Gemini settings.json is invalid JSON; leaving it unchanged: $settings_file"
+        GEMINI_FAILURE_REASON="existing settings.json is invalid or has malformed hooks; left unchanged"
+        warn "Gemini settings.json is invalid or has malformed hooks; leaving it unchanged: $settings_file"
         return 0
       fi
       if [ "$gemini_hook_state" = "already" ]; then
@@ -1505,20 +1505,29 @@ if not isinstance(settings, dict):
 # Gemini CLI uses BeforeTool instead of PreToolUse
 if 'hooks' not in settings:
     settings['hooks'] = {}
-if not isinstance(settings['hooks'], dict):
-    settings['hooks'] = {}
+elif not isinstance(settings['hooks'], dict):
+    print(f"Gemini settings.json hooks must contain a JSON object: {settings_file}", file=sys.stderr)
+    raise SystemExit(1)
 if 'BeforeTool' not in settings['hooks']:
     settings['hooks']['BeforeTool'] = []
-if not isinstance(settings['hooks']['BeforeTool'], list):
-    settings['hooks']['BeforeTool'] = []
+elif not isinstance(settings['hooks']['BeforeTool'], list):
+    print(f"Gemini settings.json BeforeTool must contain a list: {settings_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 dcg_hook = {"name": "dcg", "type": "command", "command": dcg_path, "timeout": 5000}
 
 shell_hooks = []
 new_before_tool = []
+shell_sequential = None
 
 for entry in settings['hooks']['BeforeTool']:
     if isinstance(entry, dict) and entry.get('matcher') == 'run_shell_command':
+        if isinstance(entry.get('sequential'), bool):
+            shell_sequential = (
+                entry['sequential']
+                if shell_sequential is None
+                else shell_sequential or entry['sequential']
+            )
         hooks = entry.get('hooks', [])
         if isinstance(hooks, list):
             for hook in hooks:
@@ -1529,10 +1538,13 @@ for entry in settings['hooks']['BeforeTool']:
         new_before_tool.append(entry)
 
 shell_hooks.insert(0, dcg_hook)
-new_before_tool.insert(0, {
+shell_entry = {
     "matcher": "run_shell_command",
     "hooks": shell_hooks
-})
+}
+if shell_sequential is not None:
+    shell_entry["sequential"] = shell_sequential
+new_before_tool.insert(0, shell_entry)
 settings['hooks']['BeforeTool'] = new_before_tool
 
 with open(settings_file, 'w') as f:
