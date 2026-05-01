@@ -1297,6 +1297,13 @@ test_command_with_packs "dig +short example.com" "allow" "dns.generic" "dig +sho
 test_command_with_packs "host example.com" "allow" "dns.generic" "host lookup (generic dns pack enabled, safe command)"
 test_command_with_packs "nslookup example.com" "allow" "dns.generic" "nslookup lookup (generic dns pack enabled, safe command)"
 
+# Kafka pack tests
+test_command_with_packs "kafka-topics --bootstrap-server localhost:9092 --list" "allow" "messaging.kafka" "kafka-topics --list (kafka pack enabled, safe command)"
+test_command_with_packs "kafka-topics --bootstrap-server localhost:9092 --list --delete --topic orders" "block" "messaging.kafka" "kafka-topics --list plus --delete (kafka pack enabled)"
+test_command_with_packs "kafka-acls --bootstrap-server localhost:9092 --list --remove --topic payments" "block" "messaging.kafka" "kafka-acls --list plus --remove (kafka pack enabled)"
+test_command_with_packs "kafka-configs --bootstrap-server localhost:9092 --describe --alter --delete-config retention.ms --entity-type topics --entity-name logs" "block" "messaging.kafka" "kafka-configs --describe plus --delete-config (kafka pack enabled)"
+test_command_with_packs "kafka-consumer-groups --bootstrap-server localhost:9092 --describe --reset-offsets --group analytics --topic orders" "block" "messaging.kafka" "kafka-consumer-groups --describe plus --reset-offsets (kafka pack enabled)"
+
 # Multiple packs enabled simultaneously
 test_command_with_packs "docker system prune" "block" "containers.docker,kubernetes.kubectl" "docker system prune (multiple packs enabled)"
 test_command_with_packs "kubectl delete namespace foo" "block" "containers.docker,kubernetes.kubectl" "kubectl delete namespace (multiple packs enabled)"

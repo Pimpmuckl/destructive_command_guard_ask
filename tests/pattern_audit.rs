@@ -576,6 +576,17 @@ fn test_audit_backtracking_requirements() {
             ]),
         ),
         (
+            "messaging.kafka",
+            HashSet::from([
+                "kafka-acls-list",
+                "kafka-configs-describe",
+                "kafka-consumer-groups-describe",
+                "kafka-consumer-groups-list",
+                "kafka-topics-describe",
+                "kafka-topics-list",
+            ]),
+        ),
+        (
             "messaging.nats",
             HashSet::from([
                 "nats-bench",

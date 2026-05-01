@@ -568,7 +568,7 @@ Generated: 2026-04-30T22:58:33.693996
 
 | Kind | Name | Reason | Regex Preview |
 |------|------|--------|---------------|
-| destructive | `playbook-all-hosts` | Found '!' | `ansible-playbook\s+(?!.*(?:--check\|--limit\|--diff)).*-i...` |
+| destructive | `playbook-all-hosts` | Found '!' | `ansible-playbook\s+(?!.*(?:--check(?:\s\|$)\|--limit)).*-i...` |
 
 ## `src/packs/infrastructure/pulumi.rs`
 
@@ -656,6 +656,17 @@ Generated: 2026-04-30T22:58:33.693996
 | safe | `traefik-api-get` | Found '!' | `(?i)^(?!(?=.*(?:-X\|--request)\s*DELETE\b)(?=.*\btraefik\...` |
 | safe | `traefik-api-read` | Found '!' | `curl\b(?!.*\s(?:-X\|--request)\s*(?:DELETE\|PUT\|POST\|PA...` |
 | destructive | `traefik-api-delete` | Found '(?=' | `(?i)\bcurl\b(?=.*(?:-X\|--request)\s*DELETE\b)(?=.*\btrae...` |
+
+## `src/packs/messaging/kafka.rs`
+
+| Kind | Name | Reason | Regex Preview |
+|------|------|--------|---------------|
+| safe | `kafka-topics-list` | Found '!' | `kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--list\b` |
+| safe | `kafka-topics-describe` | Found '!' | `kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--describe\b` |
+| safe | `kafka-consumer-groups-list` | Found '!' | `kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete\|--reset-offsets...` |
+| safe | `kafka-consumer-groups-describe` | Found '!' | `kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete\|--reset-offsets...` |
+| safe | `kafka-acls-list` | Found '!' | `kafka-acls(?:\.sh)?\b(?!.*\s--remove\b).*\s--list\b` |
+| safe | `kafka-configs-describe` | Found '!' | `kafka-configs(?:\.sh)?\b(?!.*\s--delete-config\b).*\s--describe\b` |
 
 ## `src/packs/messaging/nats.rs`
 

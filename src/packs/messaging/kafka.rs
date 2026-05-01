@@ -40,23 +40,29 @@ pub fn create_pack() -> Pack {
 
 fn create_safe_patterns() -> Vec<SafePattern> {
     vec![
-        safe_pattern!("kafka-topics-list", r"kafka-topics(?:\.sh)?\b.*\s--list\b"),
+        safe_pattern!(
+            "kafka-topics-list",
+            r"kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--list\b"
+        ),
         safe_pattern!(
             "kafka-topics-describe",
-            r"kafka-topics(?:\.sh)?\b.*\s--describe\b"
+            r"kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--describe\b"
         ),
         safe_pattern!(
             "kafka-consumer-groups-list",
-            r"kafka-consumer-groups(?:\.sh)?\b.*\s--list\b"
+            r"kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete|--reset-offsets)\b).*\s--list\b"
         ),
         safe_pattern!(
             "kafka-consumer-groups-describe",
-            r"kafka-consumer-groups(?:\.sh)?\b.*\s--describe\b"
+            r"kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete|--reset-offsets)\b).*\s--describe\b"
         ),
-        safe_pattern!("kafka-acls-list", r"kafka-acls(?:\.sh)?\b.*\s--list\b"),
+        safe_pattern!(
+            "kafka-acls-list",
+            r"kafka-acls(?:\.sh)?\b(?!.*\s--remove\b).*\s--list\b"
+        ),
         safe_pattern!(
             "kafka-configs-describe",
-            r"kafka-configs(?:\.sh)?\b.*\s--describe\b"
+            r"kafka-configs(?:\.sh)?\b(?!.*\s--delete-config\b).*\s--describe\b"
         ),
         safe_pattern!(
             "kafka-console-consumer",
@@ -288,6 +294,48 @@ mod tests {
         assert_allows(
             &pack,
             "kafka-broker-api-versions --bootstrap-server localhost:9092",
+        );
+    }
+
+    #[test]
+    fn safe_action_flags_do_not_override_destructive_flags() {
+        let pack = create_pack();
+
+        assert_no_safe_match(
+            &pack,
+            "kafka-topics --bootstrap-server localhost:9092 --list --delete --topic orders",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "kafka-topics --bootstrap-server localhost:9092 --list --delete --topic orders",
+            "kafka-topics-delete",
+        );
+        assert_no_safe_match(
+            &pack,
+            "kafka-acls --bootstrap-server localhost:9092 --list --remove --topic payments",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "kafka-acls --bootstrap-server localhost:9092 --list --remove --topic payments",
+            "kafka-acls-remove",
+        );
+        assert_no_safe_match(
+            &pack,
+            "kafka-configs --bootstrap-server localhost:9092 --describe --alter --delete-config retention.ms --entity-type topics --entity-name logs",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "kafka-configs --bootstrap-server localhost:9092 --describe --alter --delete-config retention.ms --entity-type topics --entity-name logs",
+            "kafka-configs-delete-config",
+        );
+        assert_no_safe_match(
+            &pack,
+            "kafka-consumer-groups --bootstrap-server localhost:9092 --describe --reset-offsets --group analytics --topic orders",
+        );
+        assert_blocks_with_pattern(
+            &pack,
+            "kafka-consumer-groups --bootstrap-server localhost:9092 --describe --reset-offsets --group analytics --topic orders",
+            "kafka-consumer-groups-reset-offsets",
         );
     }
 }

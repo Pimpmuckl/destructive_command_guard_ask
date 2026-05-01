@@ -42,12 +42,12 @@ These patterns match safe commands that are always allowed:
 
 | Pattern Name | Pattern |
 |--------------|----------|
-| `kafka-topics-list` | `kafka-topics(?:\.sh)?\b.*\s--list\b` |
-| `kafka-topics-describe` | `kafka-topics(?:\.sh)?\b.*\s--describe\b` |
-| `kafka-consumer-groups-list` | `kafka-consumer-groups(?:\.sh)?\b.*\s--list\b` |
-| `kafka-consumer-groups-describe` | `kafka-consumer-groups(?:\.sh)?\b.*\s--describe\b` |
-| `kafka-acls-list` | `kafka-acls(?:\.sh)?\b.*\s--list\b` |
-| `kafka-configs-describe` | `kafka-configs(?:\.sh)?\b.*\s--describe\b` |
+| `kafka-topics-list` | `kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--list\b` |
+| `kafka-topics-describe` | `kafka-topics(?:\.sh)?\b(?!.*\s--delete\b).*\s--describe\b` |
+| `kafka-consumer-groups-list` | `kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete\|--reset-offsets)\b).*\s--list\b` |
+| `kafka-consumer-groups-describe` | `kafka-consumer-groups(?:\.sh)?\b(?!.*\s(?:--delete\|--reset-offsets)\b).*\s--describe\b` |
+| `kafka-acls-list` | `kafka-acls(?:\.sh)?\b(?!.*\s--remove\b).*\s--list\b` |
+| `kafka-configs-describe` | `kafka-configs(?:\.sh)?\b(?!.*\s--delete-config\b).*\s--describe\b` |
 | `kafka-console-consumer` | `kafka-console-consumer(?:\.sh)?\b` |
 | `kafka-console-producer` | `kafka-console-producer(?:\.sh)?\b` |
 | `kafka-broker-api-versions` | `kafka-broker-api-versions(?:\.sh)?\b` |
