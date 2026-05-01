@@ -531,13 +531,32 @@ def is_dcg_command(command):
         name = name[:-4]
     return name == "dcg"
 
-def is_dcg_entry(entry):
+def strip_dcg_platform_fields(entry):
     if not isinstance(entry, dict):
-        return False
-    return is_dcg_command(entry.get("bash")) or is_dcg_command(entry.get("powershell"))
+        return False, [entry]
 
-new_pre = [entry for entry in pre_tool if not is_dcg_entry(entry)]
-if len(new_pre) == len(pre_tool):
+    cleaned = dict(entry)
+    removed = False
+    for key in ("bash", "powershell"):
+        if is_dcg_command(cleaned.get(key)):
+            removed = True
+            cleaned.pop(key, None)
+
+    if not removed:
+        return False, [entry]
+    if cleaned.get("bash") or cleaned.get("powershell"):
+        return True, [cleaned]
+    return True, []
+
+removed = False
+new_pre = []
+for entry in pre_tool:
+    entry_removed, residual_entries = strip_dcg_platform_fields(entry)
+    if entry_removed:
+        removed = True
+    new_pre.extend(residual_entries)
+
+if not removed:
     sys.exit(0)
 
 if new_pre:

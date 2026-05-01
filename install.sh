@@ -2165,11 +2165,6 @@ desired = {
     "timeoutSec": 30,
 }
 
-def is_dcg_entry(entry):
-    if not isinstance(entry, dict):
-        return False
-    return command_invokes_dcg(entry.get("bash")) or command_invokes_dcg(entry.get("powershell"))
-
 def command_invokes_dcg(cmd):
     if not isinstance(cmd, str) or not cmd:
         return False
@@ -2184,14 +2179,31 @@ def command_invokes_dcg(cmd):
         name = name[:-4]
     return name == "dcg"
 
+def strip_dcg_platform_fields(entry):
+    if not isinstance(entry, dict):
+        return False, [entry]
+
+    cleaned = dict(entry)
+    removed = False
+    for key in ("bash", "powershell"):
+        if command_invokes_dcg(cleaned.get(key)):
+            removed = True
+            cleaned.pop(key, None)
+
+    if not removed:
+        return False, [entry]
+    if cleaned.get("bash") or cleaned.get("powershell"):
+        return True, [cleaned]
+    return True, []
+
 found = False
 preserved = []
 
 for entry in pre_tool:
-    if is_dcg_entry(entry):
+    removed, residual_entries = strip_dcg_platform_fields(entry)
+    if removed:
         found = True
-    else:
-        preserved.append(entry)
+    preserved.extend(residual_entries)
 
 next_pre_tool = [desired] + preserved
 changed = pre_tool != next_pre_tool

@@ -1590,6 +1590,56 @@ EOF
     grep -qF "atuin history start" "$COPILOT_HOOK_FILE"
 }
 
+@test "configure_copilot: preserves mixed hook entries when refreshing a dcg platform command" {
+    log_test "Testing Copilot mixed platform hook preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json << EOF
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "audit-pretool",
+        "powershell": "$DEST/dcg",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
+EOF
+
+    configure_copilot
+
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "Hook content: $(cat "$COPILOT_HOOK_FILE")"
+
+    [ "$COPILOT_STATUS" = "merged" ]
+    assert_copilot_first_hook "$DEST/dcg"
+    assert_copilot_dcg_hook_count 1
+    python3 - "$COPILOT_HOOK_FILE" <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r") as f:
+    config = json.load(f)
+
+pre_tool = config["hooks"]["preToolUse"]
+if len(pre_tool) != 2:
+    raise SystemExit(f"expected two Copilot hooks after merge, found {len(pre_tool)}")
+
+residual = pre_tool[1]
+if residual.get("bash") != "audit-pretool":
+    raise SystemExit(f"mixed hook bash command was not preserved: {residual!r}")
+if "powershell" in residual:
+    raise SystemExit(f"dcg powershell command was not stripped from mixed hook: {residual!r}")
+PYEOF
+}
+
 @test "configure_copilot: adds preToolUse when hooks object exists without it" {
     log_test "Testing Copilot hook file extension without preToolUse..."
     command -v python3 &>/dev/null || skip "python3 not available"

@@ -368,6 +368,60 @@ EOF
     grep -qF '/opt/dcgrep/bin/scan' .github/hooks/dcg.json
 }
 
+@test "unconfigure_copilot: preserves mixed hook entries after removing dcg platform command" {
+    log_test "Testing GitHub Copilot CLI mixed platform hook preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+    command -v git &>/dev/null || skip "git not available"
+    extract_uninstall_functions
+
+    mkdir -p "$TEST_TMPDIR/repo"
+    cd "$TEST_TMPDIR/repo"
+    git init -q
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json << 'EOF'
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "audit-pretool",
+        "powershell": "/usr/local/bin/dcg",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
+EOF
+
+    run unconfigure_copilot
+
+    log_test "unconfigure_copilot status: $status"
+    log_test "unconfigure_copilot output: $output"
+    log_test "After: $(cat .github/hooks/dcg.json)"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"removed"* ]]
+    python3 - .github/hooks/dcg.json <<'PYEOF'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    config = json.load(f)
+
+pre_tool = config["hooks"]["preToolUse"]
+if len(pre_tool) != 1:
+    raise SystemExit(f"expected one preserved Copilot hook, found {len(pre_tool)}")
+
+residual = pre_tool[0]
+if residual.get("bash") != "audit-pretool":
+    raise SystemExit(f"mixed hook bash command was not preserved: {residual!r}")
+if "powershell" in residual:
+    raise SystemExit(f"dcg powershell command was not stripped from mixed hook: {residual!r}")
+PYEOF
+}
+
 # ============================================================================
 # Cursor IDE Uninstall Tests
 # ============================================================================
