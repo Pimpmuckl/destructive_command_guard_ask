@@ -259,7 +259,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-project-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*(?:projectDelete|projectScheduleDelete)|(?:projectDelete|projectScheduleDelete).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*(?:projectDelete|projectScheduleDelete)|(?:projectDelete|projectScheduleDelete)(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API project deletion mutation detected.",
             Critical,
             "Railway GraphQL project deletion mutations can remove an entire project and all attached production resources.",
@@ -267,7 +267,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-environment-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*environmentDelete|environmentDelete.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*environmentDelete|environmentDelete(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API environment deletion mutation detected.",
             Critical,
             "Railway GraphQL environment deletion mutations can remove production services, databases, volumes, and variables.",
@@ -275,7 +275,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-service-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*serviceDelete|serviceDelete.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*serviceDelete|serviceDelete(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API service deletion mutation detected.",
             Critical,
             "Railway GraphQL service deletion mutations can remove a production app or managed database service.",
@@ -283,7 +283,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-volume-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*(?:volumeDelete|volumeInstanceDelete)|(?:volumeDelete|volumeInstanceDelete).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*(?:volumeDelete|volumeInstanceDelete)|(?:volumeDelete|volumeInstanceDelete)(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API volume deletion mutation detected.",
             Critical,
             "Railway GraphQL volume deletion mutations can destroy persistent database storage.",
@@ -291,7 +291,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-volume-backup-restore",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*volumeInstanceBackupRestore|volumeInstanceBackupRestore.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*volumeInstanceBackupRestore|volumeInstanceBackupRestore(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API volume backup restore mutation detected.",
             Critical,
             "Restoring a Railway volume backup can replace current persistent data and roll back a production database.",
@@ -299,7 +299,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-volume-backup-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*volumeInstanceBackupDelete|volumeInstanceBackupDelete.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*volumeInstanceBackupDelete|volumeInstanceBackupDelete(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API volume backup deletion mutation detected.",
             High,
             "Deleting Railway volume backups removes recovery points for persistent database storage.",
@@ -307,7 +307,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-volume-backup-schedule-update",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*volumeInstanceBackupScheduleUpdate|volumeInstanceBackupScheduleUpdate.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*volumeInstanceBackupScheduleUpdate|volumeInstanceBackupScheduleUpdate(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API volume backup schedule update mutation detected.",
             High,
             "Changing Railway volume backup schedules can disable or weaken database recovery coverage.",
@@ -315,7 +315,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-volume-detach",
-            r#"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*volumeInstanceUpdate.*["']?serviceId["']?\s*:\s*null|volumeInstanceUpdate.*["']?serviceId["']?\s*:\s*null.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))"#,
+            r#"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*volumeInstanceUpdate(?:[^;&|\r\n]|\\\r?\n)*["']?serviceId["']?\s*:\s*null|volumeInstanceUpdate(?:[^;&|\r\n]|\\\r?\n)*["']?serviceId["']?\s*:\s*null(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))"#,
             "Railway Public API volume detach mutation detected.",
             High,
             "Railway GraphQL volumeInstanceUpdate with serviceId null detaches persistent storage from its service.",
@@ -323,7 +323,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-variable-delete",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*variableDelete|variableDelete.*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*variableDelete|variableDelete(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API variable deletion mutation detected.",
             High,
             "Railway GraphQL variable deletion mutations can remove credentials or database connection variables from production environments.",
@@ -331,7 +331,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-database-variable-upsert",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*(?:variableCollectionUpsert|variableUpsert).*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)|(?:variableCollectionUpsert|variableUpsert).*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*(?:variableCollectionUpsert|variableUpsert)(?:[^;&|\r\n]|\\\r?\n)*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)|(?:variableCollectionUpsert|variableUpsert)(?:[^;&|\r\n]|\\\r?\n)*(?:DATABASE_URL|DATABASE_PRIVATE_URL|DATABASE_PUBLIC_URL|RAILWAY_DATABASE_URL|PGHOST|PGPORT|PGUSER|PGPASSWORD|PGDATABASE|POSTGRES_HOST|POSTGRES_PORT|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|POSTGRES_DATABASE|POSTGRES_URL|POSTGRES_PRIVATE_URL|POSTGRES_PUBLIC_URL|POSTGRESQL_URL|POSTGRESQL_PRIVATE_URL|POSTGRESQL_PUBLIC_URL|MYSQL_URL|MYSQL_PRIVATE_URL|MYSQL_PUBLIC_URL|MYSQLHOST|MYSQLPORT|MYSQLUSER|MYSQLPASSWORD|MYSQLDATABASE|REDIS_URL|REDIS_PRIVATE_URL|REDIS_PUBLIC_URL|REDISHOST|REDISUSER|REDISPORT|REDISPASSWORD|MONGO_URL|MONGO_PRIVATE_URL|MONGO_PUBLIC_URL|MONGODB_URI|MONGODB_URL|MONGODB_PRIVATE_URL|MONGODB_PUBLIC_URL|MONGOHOST|MONGOPORT|MONGOUSER|MONGOPASSWORD)(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API upsert is changing a database connection variable.",
             High,
             "Bulk-upserting Railway variables that include database connection keys can redirect or sever production database access.",
@@ -339,7 +339,7 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
         ),
         destructive_pattern!(
             "railway-api-deployment-remove",
-            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN)).*(?:deploymentRemove|deploymentStop)|(?:deploymentRemove|deploymentStop).*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
+            r"(?i)(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))(?:[^;&|\r\n]|\\\r?\n)*(?:deploymentRemove|deploymentStop)|(?:deploymentRemove|deploymentStop)(?:[^;&|\r\n]|\\\r?\n)*(?:backboard\.railway\.(?:app|com)|railway\.(?:app|com)/graphql|RAILWAY_API_(?:URL|TOKEN))",
             "Railway Public API deployment removal or stop mutation detected.",
             High,
             "Railway GraphQL deployment removal and stop mutations can interrupt production availability.",
@@ -489,6 +489,10 @@ mod tests {
                 "railway-api-project-delete",
             ),
             (
+                "curl https://backboard.railway.app/graphql/v2 \\\n  --data-binary '{\"query\":\"mutation { projectDelete(id:\\\"p\\\") }\"}'",
+                "railway-api-project-delete",
+            ),
+            (
                 r#"curl https://backboard.railway.com/graphql/v2 -d '{"query":"mutation { projectScheduleDelete(id:\"p\") }"}'"#,
                 "railway-api-project-delete",
             ),
@@ -569,6 +573,14 @@ mod tests {
         assert_allows(
             &pack,
             r#"curl https://backboard.railway.app/graphql/v2 -d '{"query":"query { project(id:\"p\") { id name } }"}'"#,
+        );
+        assert_allows(
+            &pack,
+            "curl https://backboard.railway.app/graphql/v2 --data-binary '{\"query\":\"query { project(id:\\\"p\\\") { id } }\"}'\necho projectDelete",
+        );
+        assert_allows(
+            &pack,
+            "curl https://backboard.railway.app/graphql/v2 --data-binary '{\"query\":\"query { project(id:\\\"p\\\") { id } }\"}' && echo projectDelete",
         );
         assert_allows(&pack, "grep projectDelete docs/railway.md");
         assert_allows(&pack, "grep projectDelete schema.graphql");

@@ -3508,6 +3508,19 @@ mod tests {
     }
 
     #[test]
+    fn railway_api_payload_recheck_does_not_cross_newline_segments() {
+        let result = evaluate_with_pack_ids(
+            "curl https://backboard.railway.app/graphql/v2 --data-binary '{\"query\":\"query { project(id:\\\"p\\\") { id } }\"}'\necho projectDelete",
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_allowed(),
+            "safe Railway API query plus newline-separated documentation text should stay allowed"
+        );
+    }
+
+    #[test]
     fn railway_api_payload_recheck_still_blocks_destructive_curl_segment() {
         let result = evaluate_with_pack_ids(
             r#"curl https://backboard.railway.app/graphql/v2 --data-binary '{"query":"query { project(id:\"p\") { id } }"}' && curl https://backboard.railway.app/graphql/v2 --data-binary '{"query":"mutation { projectDelete(id:\"p\") }"}'"#,
@@ -3517,6 +3530,27 @@ mod tests {
         assert!(
             result.is_denied(),
             "destructive Railway API mutation in a later curl segment must still be blocked"
+        );
+        let info = result
+            .pattern_info
+            .expect("denial should include pattern info");
+        assert_eq!(info.pack_id.as_deref(), Some("platform.railway"));
+        assert_eq!(
+            info.pattern_name.as_deref(),
+            Some("railway-api-project-delete")
+        );
+    }
+
+    #[test]
+    fn railway_api_payload_recheck_handles_shell_line_continuations() {
+        let result = evaluate_with_pack_ids(
+            "curl https://backboard.railway.app/graphql/v2 \\\n  --data-binary '{\"query\":\"mutation { projectDelete(id:\\\"p\\\") }\"}'",
+            &["platform.railway"],
+        );
+
+        assert!(
+            result.is_denied(),
+            "Railway API mutation split with shell line continuation must still be blocked"
         );
         let info = result
             .pattern_info
