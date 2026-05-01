@@ -158,6 +158,58 @@ EOF
     [ "$dcg_count" -le 1 ]
 }
 
+@test "configure_claude_code: reorders current dcg hook to first" {
+    log_test "Testing Claude Code reorders existing dcg hook to first..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+    mkdir -p "$HOME/.claude"
+
+    cat > "$CLAUDE_SETTINGS" << EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"},
+          {"type": "command", "command": "$DEST/dcg"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    configure_claude_code "$CLAUDE_SETTINGS" "0"
+
+    log_test "CLAUDE_STATUS: $CLAUDE_STATUS"
+    log_test "After: $(cat "$CLAUDE_SETTINGS")"
+
+    [ "$CLAUDE_STATUS" = "merged" ]
+    python3 - "$CLAUDE_SETTINGS" "$DEST/dcg" <<'PY'
+import json
+import sys
+
+settings_file, dcg_path = sys.argv[1:3]
+with open(settings_file, "r") as f:
+    settings = json.load(f)
+
+commands = []
+for entry in settings["hooks"]["PreToolUse"]:
+    if entry.get("matcher") == "Bash":
+        commands.extend(
+            hook.get("command")
+            for hook in entry.get("hooks", [])
+            if isinstance(hook, dict)
+        )
+
+assert commands[0] == dcg_path, commands
+assert commands.count(dcg_path) == 1, commands
+assert "atuin history start" in commands, commands
+PY
+}
+
 @test "configure_claude_code: does not treat dcg substring commands as installed" {
     log_test "Testing Claude Code exact dcg command detection..."
 
@@ -316,6 +368,50 @@ EOF
     [ "$CLAUDE_STATUS" = "already" ]
 }
 
+@test "configure_claude_code: no-python fallback rejects misordered dcg hook" {
+    log_test "Testing Claude Code no-python fallback does not accept dcg after another hook..."
+
+    CLAUDE_SETTINGS="$HOME/.claude/settings.json"
+    mkdir -p "$HOME/.claude"
+
+    cat > "$CLAUDE_SETTINGS" << EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"},
+          {"type": "command", "command": "$DEST/dcg"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    local no_python_path="$TEST_TMPDIR/no-python-bin"
+    mkdir -p "$no_python_path"
+    local tool
+    for tool in dirname mkdir cp date grep sed rm mv cat; do
+        ln -s "$(command -v "$tool")" "$no_python_path/$tool"
+    done
+
+    local old_path="$PATH"
+    PATH="$no_python_path"
+    configure_claude_code "$CLAUDE_SETTINGS" "0"
+    local rc=$?
+    PATH="$old_path"
+
+    log_test "CLAUDE_STATUS: $CLAUDE_STATUS rc=$rc"
+    log_test "After: $(cat "$CLAUDE_SETTINGS")"
+
+    [ "$rc" -eq 1 ]
+    [ "$CLAUDE_STATUS" = "failed" ]
+    grep -qF 'atuin history start' "$CLAUDE_SETTINGS"
+    grep -qF "$DEST/dcg" "$CLAUDE_SETTINGS"
+}
+
 # ============================================================================
 # Gemini CLI Configuration Tests
 # ============================================================================
@@ -392,6 +488,104 @@ EOF
     log_test "GEMINI_STATUS: $GEMINI_STATUS"
 
     [ "$GEMINI_STATUS" = "already" ]
+}
+
+@test "configure_gemini: reorders current dcg hook to first" {
+    log_test "Testing Gemini reorders existing dcg hook to first..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    GEMINI_SETTINGS="$HOME/.gemini/settings.json"
+    setup_mock_gemini
+
+    cat > "$GEMINI_SETTINGS" << EOF
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {"name": "other", "type": "command", "command": "atuin history start", "timeout": 5000},
+          {"name": "dcg", "type": "command", "command": "$DEST/dcg", "timeout": 5000}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    configure_gemini "$GEMINI_SETTINGS"
+
+    log_test "GEMINI_STATUS: $GEMINI_STATUS"
+    log_test "Settings content: $(cat "$GEMINI_SETTINGS")"
+
+    [ "$GEMINI_STATUS" = "merged" ]
+    python3 - "$GEMINI_SETTINGS" "$DEST/dcg" <<'PYEOF'
+import json
+import sys
+
+settings_file, dcg_path = sys.argv[1:3]
+with open(settings_file, "r") as f:
+    settings = json.load(f)
+
+commands = []
+for entry in settings["hooks"]["BeforeTool"]:
+    if entry.get("matcher") == "run_shell_command":
+        commands.extend(
+            hook.get("command")
+            for hook in entry.get("hooks", [])
+            if isinstance(hook, dict)
+        )
+
+assert commands[0] == dcg_path, commands
+assert commands.count(dcg_path) == 1, commands
+assert "atuin history start" in commands, commands
+PYEOF
+}
+
+@test "configure_gemini: no-python fallback rejects misordered dcg hook" {
+    log_test "Testing Gemini no-python fallback does not accept dcg after another hook..."
+
+    GEMINI_SETTINGS="$HOME/.gemini/settings.json"
+    setup_mock_gemini
+
+    cat > "$GEMINI_SETTINGS" << EOF
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {"name": "other", "type": "command", "command": "atuin history start", "timeout": 5000},
+          {"name": "dcg", "type": "command", "command": "$DEST/dcg", "timeout": 5000}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    local no_python_path="$TEST_TMPDIR/no-python-bin"
+    mkdir -p "$no_python_path"
+    local tool
+    for tool in dirname mkdir cp date grep sed rm mv cat; do
+        ln -s "$(command -v "$tool")" "$no_python_path/$tool"
+    done
+
+    local old_path="$PATH"
+    PATH="$no_python_path"
+    configure_gemini "$GEMINI_SETTINGS"
+    local rc=$?
+    PATH="$old_path"
+
+    log_test "GEMINI_STATUS: $GEMINI_STATUS rc=$rc"
+    log_test "GEMINI_FAILURE_REASON: ${GEMINI_FAILURE_REASON:-}"
+    log_test "Settings content: $(cat "$GEMINI_SETTINGS")"
+
+    [ "$rc" -eq 0 ]
+    [ "$GEMINI_STATUS" = "failed" ]
+    [[ "$GEMINI_FAILURE_REASON" == *"python3"* ]]
+    grep -qF 'atuin history start' "$GEMINI_SETTINGS"
+    grep -qF "$DEST/dcg" "$GEMINI_SETTINGS"
 }
 
 @test "configure_gemini: does not treat dcg substring commands as installed" {
@@ -936,6 +1130,180 @@ EOF
 }
 
 # ============================================================================
+# GitHub Copilot CLI Configuration Tests
+# ============================================================================
+
+setup_mock_copilot_repo() {
+    mkdir -p "$HOME/.copilot"
+
+    COPILOT_REPO="$TEST_TMPDIR/copilot-repo"
+    mkdir -p "$COPILOT_REPO"
+    git init -q -b main "$COPILOT_REPO"
+    cd "$COPILOT_REPO"
+}
+
+assert_copilot_first_hook() {
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    python3 - "$COPILOT_HOOK_FILE" "$1" <<'PYEOF'
+import json
+import sys
+
+hook_file, expected = sys.argv[1:3]
+with open(hook_file, "r") as f:
+    config = json.load(f)
+
+actual = config["hooks"]["preToolUse"][0]["bash"]
+if actual != expected:
+    raise SystemExit(f"first Copilot hook was {actual!r}, expected {expected!r}")
+PYEOF
+}
+
+assert_copilot_dcg_hook_count() {
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    python3 - "$COPILOT_HOOK_FILE" "$DEST/dcg" "$1" <<'PYEOF'
+import json
+import os
+import shlex
+import sys
+
+hook_file, dcg_path, expected_raw = sys.argv[1:4]
+expected = int(expected_raw)
+
+def command_invokes_dcg(cmd):
+    if not isinstance(cmd, str) or not cmd:
+        return False
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    name = os.path.basename(tokens[0])
+    if name.endswith(".exe"):
+        name = name[:-4]
+    return name == "dcg"
+
+with open(hook_file, "r") as f:
+    config = json.load(f)
+
+count = 0
+for entry in config["hooks"]["preToolUse"]:
+    if command_invokes_dcg(entry.get("bash")) or command_invokes_dcg(entry.get("powershell")):
+        count += 1
+
+if count != expected:
+    raise SystemExit(f"Copilot dcg hook count was {count}, expected {expected}")
+
+first = config["hooks"]["preToolUse"][0]
+if first.get("bash") != dcg_path or first.get("powershell") != dcg_path:
+    raise SystemExit(f"first Copilot hook is not the current dcg hook: {first!r}")
+PYEOF
+}
+
+@test "configure_copilot: adds hook in git repository" {
+    log_test "Testing Copilot hook creation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+
+    configure_copilot
+
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "Hook file: ${COPILOT_HOOK_FILE:-}"
+    log_test "Hook content: $(cat "$COPILOT_HOOK_FILE" 2>/dev/null || echo 'missing')"
+
+    [ "$COPILOT_STATUS" = "created" ]
+    [ -f "$COPILOT_HOOK_FILE" ]
+    assert_copilot_first_hook "$DEST/dcg"
+    assert_copilot_dcg_hook_count 1
+}
+
+@test "configure_copilot: does not treat dcg substring commands as installed" {
+    log_test "Testing Copilot exact dcg hook detection..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json <<'EOF'
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "/opt/dcgrep/bin/scan",
+        "powershell": "pwsh-dcg-helper",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
+EOF
+
+    configure_copilot
+
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "Hook content: $(cat "$COPILOT_HOOK_FILE")"
+
+    [ "$COPILOT_STATUS" = "merged" ]
+    assert_copilot_first_hook "$DEST/dcg"
+    assert_copilot_dcg_hook_count 1
+    grep -qF "/opt/dcgrep/bin/scan" "$COPILOT_HOOK_FILE"
+    grep -qF "pwsh-dcg-helper" "$COPILOT_HOOK_FILE"
+}
+
+@test "configure_copilot: reorders current dcg hook to first and removes duplicates" {
+    log_test "Testing Copilot dcg hook reorder and duplicate cleanup..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json << EOF
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "atuin history start",
+        "powershell": "atuin history start",
+        "cwd": ".",
+        "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "$DEST/dcg",
+        "powershell": "$DEST/dcg",
+        "cwd": ".",
+        "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "/old/bin/dcg",
+        "powershell": "/old/bin/dcg",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
+EOF
+
+    configure_copilot
+
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "Hook content: $(cat "$COPILOT_HOOK_FILE")"
+
+    [ "$COPILOT_STATUS" = "merged" ]
+    assert_copilot_first_hook "$DEST/dcg"
+    assert_copilot_dcg_hook_count 1
+    grep -qF "atuin history start" "$COPILOT_HOOK_FILE"
+}
+
+# ============================================================================
 # Codex CLI Detection Tests
 # ============================================================================
 
@@ -1113,6 +1481,39 @@ EOF
     [ "$CODEX_STATUS" = "already" ]
     assert_codex_hooks_has_current_dcg
     assert_codex_dcg_hook_count 1
+}
+
+@test "configure_codex: reorders current dcg hook to first" {
+    log_test "Testing Codex reorders existing dcg hook to first..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_codex
+    cat > "$CODEX_SETTINGS" << EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "atuin history start"},
+          {"type": "command", "command": "$DEST/dcg"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+    configure_codex
+
+    log_test "CODEX_STATUS: $CODEX_STATUS"
+    log_test "After hooks.json: $(cat "$CODEX_SETTINGS")"
+
+    [ "$CODEX_STATUS" = "merged" ]
+    assert_codex_hooks_has_current_dcg
+    assert_codex_first_bash_hook_command "$DEST/dcg"
+    assert_codex_dcg_hook_count 1
+    grep -q "atuin history start" "$CODEX_SETTINGS"
 }
 
 @test "configure_codex: merges existing hooks and keeps dcg first" {

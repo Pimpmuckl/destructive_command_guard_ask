@@ -1169,6 +1169,8 @@ if not isinstance(pre_tool_use, list):
     raise SystemExit(0)
 
 dcg_commands = []
+first_bash_hook_command = None
+first_bash_matcher_seen = False
 predecessor_present = False
 for entry in pre_tool_use:
     if not isinstance(entry, dict) or entry.get("matcher") != "Bash":
@@ -1176,6 +1178,11 @@ for entry in pre_tool_use:
     hooks = entry.get("hooks", [])
     if not isinstance(hooks, list):
         continue
+    if not first_bash_matcher_seen:
+        first_bash_matcher_seen = True
+        first_hook = hooks[0] if hooks else None
+        if isinstance(first_hook, dict):
+            first_bash_hook_command = first_hook.get("command")
     for hook in hooks:
         if not isinstance(hook, dict):
             continue
@@ -1187,7 +1194,7 @@ for entry in pre_tool_use:
 
 if cleanup_predecessor and predecessor_present:
     print("merge")
-elif dcg_commands == [dcg_path]:
+elif dcg_commands == [dcg_path] and first_bash_hook_command == dcg_path:
     print("already")
 else:
     print("merge")
@@ -1200,11 +1207,20 @@ PYEOF
       fi
     else
       # Fallback for systems without python3; the merge path below is also
-      # python-backed. Only trust the exact hook path written by dcg itself so
-      # unrelated commands with "dcg" in their path do not suppress installation.
+      # python-backed. Only trust the exact hook path when it is already the
+      # first command hook in the Bash matcher.
       local dcg_hook_regex
+      local compact_settings
+      local dcg_command_marker
+      local after_first_dcg
       dcg_hook_regex=$(printf '%s' "$DEST/dcg" | sed 's/[][\\.^$*+?{}()|]/\\&/g')
-      if grep -Eq "\"command\"[[:space:]]*:[[:space:]]*\"$dcg_hook_regex\"" "$settings_file" 2>/dev/null; then
+      compact_settings=$(LC_ALL=C sed ':a;N;$!ba;s/[[:space:]]//g' "$settings_file" 2>/dev/null || true)
+      dcg_command_marker="\"command\":\"$DEST/dcg\""
+      after_first_dcg="${compact_settings#*"$dcg_command_marker"}"
+      if [ "$after_first_dcg" != "$compact_settings" ] &&
+         [ "${after_first_dcg#*"$dcg_command_marker"}" = "$after_first_dcg" ] &&
+         printf '%s\n' "$compact_settings" |
+           grep -Eq "\"matcher\":\"Bash\",\"hooks\":\\[\\{[^}]*\"command\":\"$dcg_hook_regex\""; then
         CLAUDE_STATUS="already"
         AUTO_CONFIGURED=1
         return 0
@@ -1283,23 +1299,15 @@ for entry in settings['hooks']['PreToolUse']:
                             bash_hooks.append(hook)  # Keep predecessor
                     elif not is_dcg_command(cmd):  # Don't duplicate dcg
                         bash_hooks.append(hook)
-                    else:
-                        # Keep existing dcg hook but ensure path is updated
-                        bash_hooks.append({"type": "command", "command": dcg_path})
                 else:
                     bash_hooks.append(hook)
     else:
         new_pre_tool_use.append(entry)
 
-# Add dcg hook at the beginning if not already present
+# Add exactly one current dcg hook at the beginning. Existing dcg hooks,
+# including stale paths or duplicates, are intentionally collapsed here.
 dcg_hook = {"type": "command", "command": dcg_path}
-dcg_exists = any(
-    is_dcg_command(h.get('command', ''))
-    for h in bash_hooks
-    if isinstance(h, dict)
-)
-if not dcg_exists:
-    bash_hooks.insert(0, dcg_hook)
+bash_hooks.insert(0, dcg_hook)
 
 # Create consolidated Bash matcher with dcg first
 if bash_hooks:
@@ -1424,17 +1432,24 @@ if not isinstance(before_tool, list):
     raise SystemExit(0)
 
 dcg_commands = []
+first_shell_hook_command = None
+first_shell_matcher_seen = False
 for entry in before_tool:
     if not isinstance(entry, dict) or entry.get("matcher") != "run_shell_command":
         continue
     hooks = entry.get("hooks", [])
     if not isinstance(hooks, list):
         continue
+    if not first_shell_matcher_seen:
+        first_shell_matcher_seen = True
+        first_hook = hooks[0] if hooks else None
+        if isinstance(first_hook, dict):
+            first_shell_hook_command = first_hook.get("command")
     for hook in hooks:
         if isinstance(hook, dict) and is_dcg_command(hook.get("command")):
             dcg_commands.append(hook.get("command"))
 
-if dcg_commands == [dcg_path]:
+if dcg_commands == [dcg_path] and first_shell_hook_command == dcg_path:
     print("already")
 else:
     print("merge")
@@ -1453,10 +1468,19 @@ PYEOF
       fi
     else
       # Fallback for systems without python3; the merge path below also needs
-      # python3, so only claim "already" for the exact hook path dcg writes.
+      # python3, so only claim "already" when the exact current hook is first.
       local dcg_hook_regex
+      local compact_settings
+      local dcg_command_marker
+      local after_first_dcg
       dcg_hook_regex=$(printf '%s' "$DEST/dcg" | sed 's/[][\\.^$*+?{}()|]/\\&/g')
-      if grep -Eq "\"command\"[[:space:]]*:[[:space:]]*\"$dcg_hook_regex\"" "$settings_file" 2>/dev/null; then
+      compact_settings=$(LC_ALL=C sed ':a;N;$!ba;s/[[:space:]]//g' "$settings_file" 2>/dev/null || true)
+      dcg_command_marker="\"command\":\"$DEST/dcg\""
+      after_first_dcg="${compact_settings#*"$dcg_command_marker"}"
+      if [ "$after_first_dcg" != "$compact_settings" ] &&
+         [ "${after_first_dcg#*"$dcg_command_marker"}" = "$after_first_dcg" ] &&
+         printf '%s\n' "$compact_settings" |
+           grep -Eq "\"matcher\":\"run_shell_command\",\"hooks\":\\[\\{[^}]*\"command\":\"$dcg_hook_regex\""; then
         GEMINI_STATUS="already"
         AUTO_CONFIGURED=1
         return 0
@@ -1814,17 +1838,24 @@ if "PreToolUse" in hooks_obj and not isinstance(pre_tool_use, list):
     raise SystemExit(0)
 
 dcg_commands = []
+first_bash_hook_command = None
+first_bash_matcher_seen = False
 for entry in pre_tool_use:
     if not isinstance(entry, dict) or entry.get("matcher") != "Bash":
         continue
     hooks = entry.get("hooks", [])
     if not isinstance(hooks, list):
         continue
+    if not first_bash_matcher_seen:
+        first_bash_matcher_seen = True
+        first_hook = hooks[0] if hooks else None
+        if isinstance(first_hook, dict):
+            first_bash_hook_command = first_hook.get("command")
     for hook in hooks:
         if isinstance(hook, dict) and is_dcg_command(hook.get("command")):
             dcg_commands.append(hook.get("command"))
 
-if dcg_commands == [dcg_path]:
+if dcg_commands == [dcg_path] and first_bash_hook_command == dcg_path:
     print("already")
 else:
     print("merge")
@@ -2032,6 +2063,8 @@ configure_copilot() {
       local py_result
       py_result=$(python3 - "$hook_file" "$DEST/dcg" <<'PYEOF'
 import json
+import os
+import shlex
 import sys
 
 hook_file = sys.argv[1]
@@ -2070,25 +2103,34 @@ desired = {
 def is_dcg_entry(entry):
     if not isinstance(entry, dict):
         return False
-    bash_cmd = str(entry.get("bash", ""))
-    pwsh_cmd = str(entry.get("powershell", ""))
-    return "dcg" in bash_cmd or "dcg" in pwsh_cmd
+    return command_invokes_dcg(entry.get("bash")) or command_invokes_dcg(entry.get("powershell"))
+
+def command_invokes_dcg(cmd):
+    if not isinstance(cmd, str) or not cmd:
+        return False
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    name = os.path.basename(tokens[0])
+    if name.endswith(".exe"):
+        name = name[:-4]
+    return name == "dcg"
 
 found = False
-changed = False
+preserved = []
 
 for entry in pre_tool:
     if is_dcg_entry(entry):
         found = True
-        for key, value in desired.items():
-            if entry.get(key) != value:
-                entry[key] = value
-                changed = True
-        break
+    else:
+        preserved.append(entry)
 
-if not found:
-    pre_tool.insert(0, desired)
-    changed = True
+next_pre_tool = [desired] + preserved
+changed = pre_tool != next_pre_tool
+hooks["preToolUse"] = next_pre_tool
 
 after = json.dumps(settings, sort_keys=True)
 if not changed and before == after:
