@@ -440,7 +440,7 @@ pub fn detect_protocol(input: &HookInput) -> HookProtocol {
     HookProtocol::ClaudeCompatible
 }
 
-fn is_supported_shell_tool(tool_name: Option<&str>) -> bool {
+pub(crate) fn is_supported_shell_tool(tool_name: Option<&str>) -> bool {
     let Some(tool_name) = tool_name else {
         return false;
     };

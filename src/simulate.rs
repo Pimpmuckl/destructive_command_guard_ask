@@ -7,7 +7,7 @@
 //! # Supported input formats
 //!
 //! 1. **Plain command** - The entire line is a shell command
-//! 2. **Hook JSON** - `{"tool_name":"Bash","tool_input":{"command":"..."}}`
+//! 2. **Hook JSON** - supported agent hook payloads containing a shell command
 //! 3. **Structured decision log** - Schema-versioned log entries (future)
 //!
 //! # Design principles
@@ -29,7 +29,7 @@ pub const SIMULATE_SCHEMA_VERSION: u32 = 1;
 pub enum SimulateInputFormat {
     /// Plain command string (the entire line is the command)
     PlainCommand,
-    /// Hook JSON: `{"tool_name":"Bash","tool_input":{"command":"..."}}`
+    /// Hook JSON from a supported shell-command hook protocol
     HookJson,
     /// Structured decision log entry (schema-versioned)
     DecisionLog,
@@ -305,55 +305,42 @@ fn parse_line(line: &str, max_command_bytes: Option<usize>) -> ParsedLine {
 /// (including Malformed for missing/invalid fields), or `None` if the line is not
 /// valid JSON or does not resemble hook input (should fall back to plain command).
 fn try_parse_hook_json(line: &str, max_command_bytes: Option<usize>) -> Option<ParsedLine> {
-    // Minimal JSON structure we expect:
-    // {"tool_name":"Bash","tool_input":{"command":"..."}}
-
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     let serde_json::Value::Object(map) = value else {
         return None;
     };
 
-    let tool_name_value = map.get("tool_name")?;
-    let serde_json::Value::String(tool_name) = tool_name_value else {
-        return Some(ParsedLine::Malformed {
-            error: "tool_name must be a string".to_string(),
-        });
-    };
+    if !looks_like_hook_input(&map) {
+        return None;
+    }
 
-    // Check if it's a Bash (Claude Code) or launch-process (Augment Code CLI) tool
-    if tool_name != "Bash" && tool_name != "launch-process" {
+    if let Some(tool_name_value) = map.get("tool_name").or_else(|| map.get("toolName")) {
+        let serde_json::Value::String(_) = tool_name_value else {
+            return Some(ParsedLine::Malformed {
+                error: "tool_name must be a string".to_string(),
+            });
+        };
+    }
+
+    let hook_input =
+        match serde_json::from_value::<crate::hook::HookInput>(serde_json::Value::Object(map)) {
+            Ok(input) => input,
+            Err(err) => {
+                return Some(ParsedLine::Malformed {
+                    error: format!("invalid hook JSON: {err}"),
+                });
+            }
+        };
+
+    if !crate::hook::is_supported_shell_tool(hook_input.tool_name.as_deref()) {
         return Some(ParsedLine::Ignore {
-            reason: "non-Bash/launch-process tool",
+            reason: "non-shell tool",
         });
     }
 
-    let tool_input_value = map.get("tool_input").ok_or_else(|| ParsedLine::Malformed {
-        error: "missing tool_input".to_string(),
-    });
-    let tool_input_value = match tool_input_value {
-        Ok(value) => value,
-        Err(err) => return Some(err),
-    };
-
-    let serde_json::Value::Object(tool_input_map) = tool_input_value else {
+    let Some((command, _protocol)) = crate::hook::extract_command_with_protocol(&hook_input) else {
         return Some(ParsedLine::Malformed {
-            error: "tool_input must be an object".to_string(),
-        });
-    };
-
-    let command_value = tool_input_map
-        .get("command")
-        .ok_or_else(|| ParsedLine::Malformed {
-            error: "missing command in tool_input".to_string(),
-        });
-    let command_value = match command_value {
-        Ok(value) => value,
-        Err(err) => return Some(err),
-    };
-
-    let serde_json::Value::String(command) = command_value else {
-        return Some(ParsedLine::Malformed {
-            error: "command must be a string".to_string(),
+            error: command_error_for_hook_input(&hook_input),
         });
     };
 
@@ -370,9 +357,36 @@ fn try_parse_hook_json(line: &str, max_command_bytes: Option<usize>) -> Option<P
     }
 
     Some(ParsedLine::Command {
-        command: command.clone(),
+        command,
         format: SimulateInputFormat::HookJson,
     })
+}
+
+fn looks_like_hook_input(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.contains_key("tool_name")
+        || map.contains_key("toolName")
+        || map.contains_key("tool_input")
+        || map.contains_key("toolInput")
+        || map.contains_key("tool_args")
+        || map.contains_key("toolArgs")
+}
+
+fn command_error_for_hook_input(input: &crate::hook::HookInput) -> String {
+    let Some(tool_input) = input.tool_input.as_ref() else {
+        if input.tool_args.is_some() {
+            return "missing or invalid command in tool_args".to_string();
+        }
+        return "missing tool_input".to_string();
+    };
+
+    match tool_input.command.as_ref() {
+        None => "missing command in tool_input".to_string(),
+        Some(serde_json::Value::String(command)) if command.is_empty() => {
+            "command must be a non-empty string".to_string()
+        }
+        Some(serde_json::Value::String(_)) => "missing or invalid command".to_string(),
+        Some(_) => "command must be a string".to_string(),
+    }
 }
 
 /// Parse a line as decision log format (future schema).
@@ -1165,6 +1179,34 @@ mod tests {
     }
 
     #[test]
+    fn detect_hook_json_gemini_run_shell_command() {
+        let line = r#"{"hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git status"}}"#;
+        let result = parse_line(line, None);
+        assert!(
+            matches!(&result, ParsedLine::Command { .. }),
+            "expected Command, got {result:?}"
+        );
+        if let ParsedLine::Command { command, format } = result {
+            assert_eq!(command, "git status");
+            assert_eq!(format, SimulateInputFormat::HookJson);
+        }
+    }
+
+    #[test]
+    fn detect_hook_json_copilot_tool_args_string() {
+        let line = r#"{"event":"pre-tool-use","toolName":"run_shell_command","toolArgs":"{\"command\":\"git status\"}"}"#;
+        let result = parse_line(line, None);
+        assert!(
+            matches!(&result, ParsedLine::Command { .. }),
+            "expected Command, got {result:?}"
+        );
+        if let ParsedLine::Command { command, format } = result {
+            assert_eq!(command, "git status");
+            assert_eq!(format, SimulateInputFormat::HookJson);
+        }
+    }
+
+    #[test]
     fn detect_hook_json_non_bash_ignored() {
         let line = r#"{"tool_name":"Read","tool_input":{"path":"/etc/passwd"}}"#;
         let result = parse_line(line, None);
@@ -1173,7 +1215,7 @@ mod tests {
             "expected Ignore, got {result:?}"
         );
         if let ParsedLine::Ignore { reason } = result {
-            assert_eq!(reason, "non-Bash/launch-process tool");
+            assert_eq!(reason, "non-shell tool");
         }
     }
 
