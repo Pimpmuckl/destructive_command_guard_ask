@@ -9,9 +9,25 @@ Repository: <https://github.com/Dicklesworthstone/destructive_command_guard>
 
 ---
 
-## [Unreleased] (after v0.4.9)
+## [Unreleased] (after v0.4.10)
 
 No unreleased changes yet.
+
+## [v0.4.10](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.10) -- 2026-05-01 [Release]
+
+Patch release after v0.4.9 for a shell tokenization regression found during
+fresh-eyes review of nested command and process substitution handling.
+
+### Shell Parsing
+
+- Preserved shell parenthesized constructs such as `$()`, `<()`, and `>()`
+  while tokenizing commands for normalization, preventing quotes inside nested
+  command substitutions from corrupting the normalized command stream
+  ([41d233a](https://github.com/Dicklesworthstone/destructive_command_guard/commit/41d233a)).
+- Masked quoted process-substitution-looking literals before Docker pack
+  evaluation while still blocking real input and output process substitutions
+  that execute destructive Docker commands
+  ([41d233a](https://github.com/Dicklesworthstone/destructive_command_guard/commit/41d233a)).
 
 ## [v0.4.9](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.9) -- 2026-05-01 [Release]
 
