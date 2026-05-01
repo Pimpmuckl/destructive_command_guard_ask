@@ -151,9 +151,11 @@ test_agent_detection() {
     mkdir -p "$HOME/.gemini"
     mkdir -p "$HOME/.continue"
 
-    # Source install.sh to get detect_agents function
-    # We extract and run just the detection part
-    source <(sed -n '/^detect_agents()/,/^}/p' "$INSTALL_SCRIPT")
+    # Source install.sh helpers needed by detect_agents.
+    # Keep this extraction narrow so the e2e does not run installer top-level code.
+    AGENT_VERSION_LOOKUP=0
+    AGENT_VERSION_TIMEOUT=1
+    source <(sed -n '/^try_version()/,/^}/p;/^detect_agents()/,/^}/p' "$INSTALL_SCRIPT")
     detect_agents
 
     log_verbose "Detected agents: ${DETECTED_AGENTS[*]:-none}"

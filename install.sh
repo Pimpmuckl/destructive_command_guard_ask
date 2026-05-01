@@ -390,8 +390,12 @@ check_installed_version() {
   fi
 
   local installed_version
-  # dcg >= 0.4.1 prints bare version to stdout; try that first
-  installed_version=$("$DEST/dcg" --version 2>/dev/null | head -1 | tr -d '[:space:]')
+  # dcg >= 0.4.1 prints bare version to stdout; some older/test binaries
+  # print "dcg 1.2.3". Accept either shape for idempotent reinstalls.
+  installed_version=$("$DEST/dcg" --version 2>/dev/null | \
+    sed -n \
+      -e 's/.*dcg[[:space:]]\+v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
+      -e 's/^[[:space:]]*v\{0,1\}\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
   if [ -z "$installed_version" ]; then
     # Older versions output only to stderr — parse the decorative box
     installed_version=$(NO_COLOR=1 "$DEST/dcg" --version 2>&1 | \
@@ -1106,6 +1110,7 @@ AIDER_BACKUP=""
 CURSOR_BACKUP=""
 COPILOT_BACKUP=""
 COPILOT_HOOK_FILE=""
+COPILOT_FAILURE_REASON=""
 
 configure_claude_code() {
   local settings_file="$1"
@@ -2078,6 +2083,8 @@ configure_copilot() {
   #
   # containing a preToolUse command hook that executes dcg.
 
+  COPILOT_FAILURE_REASON=""
+
   local copilot_installed=0
   if command -v copilot >/dev/null 2>&1 || [ -d "$HOME/.copilot" ]; then
     copilot_installed=1
@@ -2114,7 +2121,7 @@ configure_copilot() {
 
     if command -v python3 >/dev/null 2>&1; then
       local py_result
-      py_result=$(python3 - "$hook_file" "$DEST/dcg" <<'PYEOF'
+      if py_result=$(python3 - "$hook_file" "$DEST/dcg" <<'PYEOF'
 import json
 import os
 import shlex
@@ -2126,24 +2133,29 @@ dcg_path = sys.argv[2]
 try:
     with open(hook_file, "r") as f:
         settings = json.load(f)
-except Exception:
-    settings = {}
+except (OSError, ValueError, json.JSONDecodeError):
+    print(f"invalid Copilot hook file: {hook_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 if not isinstance(settings, dict):
-    settings = {}
+    print(f"Copilot hook file must contain a JSON object: {hook_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 before = json.dumps(settings, sort_keys=True)
 
 settings["version"] = 1
 hooks = settings.setdefault("hooks", {})
 if not isinstance(hooks, dict):
-    hooks = {}
-    settings["hooks"] = hooks
+    print(f"Copilot hook file hooks must contain a JSON object: {hook_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 pre_tool = hooks.get("preToolUse")
-if not isinstance(pre_tool, list):
+if "preToolUse" not in hooks:
     pre_tool = []
     hooks["preToolUse"] = pre_tool
+elif not isinstance(pre_tool, list):
+    print(f"Copilot hook file preToolUse must contain a list: {hook_file}", file=sys.stderr)
+    raise SystemExit(1)
 
 desired = {
     "type": "command",
@@ -2198,8 +2210,7 @@ if found:
 else:
     print("ADDED")
 PYEOF
-)
-      if [ $? -eq 0 ]; then
+      ); then
         case "$py_result" in
           UNCHANGED)
             COPILOT_STATUS="already"
@@ -2218,6 +2229,7 @@ PYEOF
       else
         mv "$COPILOT_BACKUP" "$hook_file" 2>/dev/null || true
         COPILOT_STATUS="failed"
+        COPILOT_FAILURE_REASON="existing hook file is invalid or has malformed hooks; left unchanged"
         COPILOT_BACKUP=""
         return 1
       fi
@@ -2226,6 +2238,7 @@ PYEOF
       rm -f "$COPILOT_BACKUP" 2>/dev/null || true
       COPILOT_BACKUP=""
       COPILOT_STATUS="failed"
+      COPILOT_FAILURE_REASON="python3 required for merge"
       return 1
     fi
   else
@@ -2757,7 +2770,11 @@ case "$COPILOT_STATUS" in
     summary_lines+=("GitHub Copilot CLI: Not installed (skipped)")
     ;;
   failed)
-    summary_lines+=("GitHub Copilot CLI: Configuration failed (python3 required for merge)")
+    if [ -n "$COPILOT_FAILURE_REASON" ]; then
+      summary_lines+=("GitHub Copilot CLI: Configuration failed ($COPILOT_FAILURE_REASON)")
+    else
+      summary_lines+=("GitHub Copilot CLI: Configuration failed")
+    fi
     ;;
 esac
 

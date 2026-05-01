@@ -657,7 +657,9 @@ EOF
 
     [ "$GEMINI_STATUS" = "merged" ]
     grep -q "\"command\": \"$DEST/dcg\"" "$GEMINI_SETTINGS"
-    ! grep -q "/old/bin/dcg" "$GEMINI_SETTINGS"
+    if grep -q "/old/bin/dcg" "$GEMINI_SETTINGS"; then
+        return 1
+    fi
     grep -q "atuin history start" "$GEMINI_SETTINGS"
 
     python3 - "$GEMINI_SETTINGS" "$DEST/dcg" <<'PYEOF'
@@ -1586,6 +1588,94 @@ EOF
     assert_copilot_first_hook "$DEST/dcg"
     assert_copilot_dcg_hook_count 1
     grep -qF "atuin history start" "$COPILOT_HOOK_FILE"
+}
+
+@test "configure_copilot: adds preToolUse when hooks object exists without it" {
+    log_test "Testing Copilot hook file extension without preToolUse..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json <<'EOF'
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "atuin history end",
+        "powershell": "atuin history end"
+      }
+    ]
+  }
+}
+EOF
+
+    configure_copilot
+
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "Hook content: $(cat "$COPILOT_HOOK_FILE")"
+
+    [ "$COPILOT_STATUS" = "merged" ]
+    assert_copilot_first_hook "$DEST/dcg"
+    assert_copilot_dcg_hook_count 1
+    grep -qF "postToolUse" "$COPILOT_HOOK_FILE"
+    grep -qF "atuin history end" "$COPILOT_HOOK_FILE"
+}
+
+@test "configure_copilot: invalid hook file is preserved and reports failed" {
+    log_test "Testing Copilot invalid hook file preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    printf '%s\n' '{"hooks":{"preToolUse":[' > .github/hooks/dcg.json
+    local before
+    before=$(cat .github/hooks/dcg.json)
+
+    configure_copilot
+    local rc=$?
+
+    log_test "configure_copilot rc: $rc"
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "COPILOT_FAILURE_REASON: ${COPILOT_FAILURE_REASON:-}"
+    log_test "Hook content: $(cat .github/hooks/dcg.json)"
+
+    [ "$rc" -eq 1 ]
+    [ "$COPILOT_STATUS" = "failed" ]
+    [[ "$COPILOT_FAILURE_REASON" == *"invalid"* ]]
+    [ -z "$COPILOT_BACKUP" ]
+    [ "$(cat .github/hooks/dcg.json)" = "$before" ]
+}
+
+@test "configure_copilot: malformed hooks object is preserved and reports failed" {
+    log_test "Testing Copilot malformed hooks preservation..."
+    command -v python3 &>/dev/null || skip "python3 not available"
+
+    setup_mock_copilot_repo
+    mkdir -p .github/hooks
+    cat > .github/hooks/dcg.json <<'EOF'
+{
+  "version": 1,
+  "hooks": ["bad-shape"]
+}
+EOF
+    local before
+    before=$(cat .github/hooks/dcg.json)
+
+    configure_copilot
+    local rc=$?
+
+    log_test "configure_copilot rc: $rc"
+    log_test "COPILOT_STATUS: $COPILOT_STATUS"
+    log_test "COPILOT_FAILURE_REASON: ${COPILOT_FAILURE_REASON:-}"
+    log_test "Hook content: $(cat .github/hooks/dcg.json)"
+
+    [ "$rc" -eq 1 ]
+    [ "$COPILOT_STATUS" = "failed" ]
+    [[ "$COPILOT_FAILURE_REASON" == *"invalid"* ]]
+    [ -z "$COPILOT_BACKUP" ]
+    [ "$(cat .github/hooks/dcg.json)" = "$before" ]
 }
 
 # ============================================================================
