@@ -118,6 +118,18 @@ fn history_agent_type_for_protocol(protocol: hook::HookProtocol, detected_agent:
     }
 }
 
+fn effective_agent_for_hook_protocol(
+    protocol: hook::HookProtocol,
+    detected_agent: &Agent,
+) -> Agent {
+    match protocol {
+        hook::HookProtocol::Codex => Agent::CodexCli,
+        hook::HookProtocol::Gemini => Agent::GeminiCli,
+        hook::HookProtocol::Copilot => Agent::CopilotCli,
+        hook::HookProtocol::ClaudeCompatible => detected_agent.clone(),
+    }
+}
+
 /// Process-wide registry of shutdown actions.
 ///
 /// `std::process::exit` skips Drop, so any subsystem with cross-call buffered
@@ -405,17 +417,8 @@ fn main() {
     // Compile overrides once (precompiled regexes, no per-command compilation)
     let compiled_overrides = config.overrides.compile();
 
-    // Load layered allowlists (project/user/system). Missing/invalid files are treated
-    // as empty for hook safety; allowlist decisions are only consulted on matches.
-    let allowlists = load_effective_allowlists_for_agent(&config, &detected_agent);
-
     // Compute effective heredoc settings once (avoid per-command parsing/allocations).
     let heredoc_settings = config.heredoc_settings();
-
-    // Get enabled pack IDs early for pack-aware quick reject.
-    // This is done before stdin read to minimize latency on the critical path.
-    let mut enabled_packs: HashSet<String> = config.enabled_pack_ids_for_agent(&detected_agent);
-    let mut enabled_keywords = REGISTRY.collect_enabled_keywords(&enabled_packs);
 
     // Load external packs from custom_paths (glob + tilde expansion).
     // External packs are loaded once and cached for the process lifetime.
@@ -428,34 +431,6 @@ fn main() {
             eprintln!("[dcg] Warning: {warning}");
         }
     }
-
-    // Auto-enable external packs: packs loaded via custom_paths are implicitly enabled.
-    // This avoids requiring users to both add a path AND explicitly enable the pack ID.
-    for id in external_store.pack_ids() {
-        enabled_packs.insert(id.clone());
-    }
-    remove_disabled_packs_for_agent(&mut enabled_packs, &config, &detected_agent);
-
-    // Merge external pack keywords into enabled keywords for quick rejection.
-    // This ensures commands with external pack keywords are not prematurely rejected.
-    enabled_keywords.extend(external_store.keywords().iter().copied());
-
-    // Build ordered pack list and keyword index AFTER external packs are loaded,
-    // so external pack IDs are included in the evaluation iteration list.
-    let mut ordered_packs = REGISTRY.expand_enabled_ordered(&enabled_packs);
-    // Append external pack IDs (not in the registry, so expand_enabled_ordered won't include them).
-    for id in external_store.pack_ids() {
-        if !ordered_packs.contains(id) {
-            ordered_packs.push(id.clone());
-        }
-    }
-    // Keyword index only covers built-in packs; disable when external packs are present
-    // to ensure the non-indexed path (which handles both built-in and external) is used.
-    let keyword_index = if external_store.pack_ids().next().is_some() {
-        None
-    } else {
-        REGISTRY.build_enabled_keyword_index(&ordered_packs)
-    };
 
     // Read and parse input
     let max_input_bytes = config.general.max_hook_input_bytes();
@@ -486,6 +461,7 @@ fn main() {
         return;
     };
     let history_agent_type = history_agent_type_for_protocol(hook_protocol, &detected_agent);
+    let effective_agent = effective_agent_for_hook_protocol(hook_protocol, &detected_agent);
 
     // Check command size limit (fail-open: allow and warn)
     let max_command_bytes = config.general.max_command_bytes();
@@ -497,6 +473,44 @@ fn main() {
         );
         return;
     }
+
+    // Load layered allowlists (project/user/system). Missing/invalid files are treated
+    // as empty for hook safety; allowlist decisions are only consulted on matches.
+    // Use the hook protocol when it identifies the agent more reliably than env/process
+    // detection, because Codex/Gemini hooks are often launched without agent-specific
+    // environment variables.
+    let allowlists = load_effective_allowlists_for_agent(&config, &effective_agent);
+
+    let mut enabled_packs: HashSet<String> = config.enabled_pack_ids_for_agent(&effective_agent);
+
+    // Auto-enable external packs: packs loaded via custom_paths are implicitly enabled.
+    // This avoids requiring users to both add a path AND explicitly enable the pack ID.
+    for id in external_store.pack_ids() {
+        enabled_packs.insert(id.clone());
+    }
+    remove_disabled_packs_for_agent(&mut enabled_packs, &config, &effective_agent);
+
+    let mut enabled_keywords = REGISTRY.collect_enabled_keywords(&enabled_packs);
+    // Merge external pack keywords into enabled keywords for quick rejection.
+    // This ensures commands with external pack keywords are not prematurely rejected.
+    enabled_keywords.extend(external_store.keywords().iter().copied());
+
+    // Build ordered pack list and keyword index AFTER external packs are loaded,
+    // so external pack IDs are included in the evaluation iteration list.
+    let mut ordered_packs = REGISTRY.expand_enabled_ordered(&enabled_packs);
+    // Append external pack IDs (not in the registry, so expand_enabled_ordered won't include them).
+    for id in external_store.pack_ids() {
+        if !ordered_packs.contains(id) {
+            ordered_packs.push(id.clone());
+        }
+    }
+    // Keyword index only covers built-in packs; disable when external packs are present
+    // to ensure the non-indexed path (which handles both built-in and external) is used.
+    let keyword_index = if external_store.pack_ids().next().is_some() {
+        None
+    } else {
+        REGISTRY.build_enabled_keyword_index(&ordered_packs)
+    };
 
     let cwd_path = std::env::current_dir().ok();
     let working_dir = cwd_path.as_ref().map_or_else(

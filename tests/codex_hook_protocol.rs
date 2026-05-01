@@ -155,6 +155,22 @@ fn build_claude_payload(command: &str) -> String {
     )
 }
 
+/// Build a complete Gemini CLI `BeforeTool` payload for `run_shell_command`.
+fn build_gemini_payload(command: &str) -> String {
+    let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        r#"{{
+  "session_id": "gemini-test-session",
+  "transcript_path": "/tmp/gemini/transcript.json",
+  "cwd": "/tmp/test-workdir",
+  "hook_event_name": "BeforeTool",
+  "timestamp": "2026-05-01T00:00:00Z",
+  "tool_name": "run_shell_command",
+  "tool_input": {{ "command": "{escaped}" }}
+}}"#
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Hermetic subprocess runner
 //
@@ -216,6 +232,60 @@ pub fn run_hook_raw(json_bytes: &[u8], extra_env: &[(&str, &str)]) -> HookOutcom
         // Leak the TempDir so it isn't cleaned up.
         let _ = home.keep();
     }
+
+    HookOutcome {
+        stdout: output.stdout,
+        stderr: output.stderr,
+        exit_code: output.status.code().unwrap_or(-1),
+        stdin_sent: json_bytes.to_vec(),
+        home_dir: home_path,
+    }
+}
+
+/// Spawn dcg with a hermetic config file in place.
+pub fn run_hook_raw_with_config(
+    json_bytes: &[u8],
+    config_toml: &str,
+    extra_env: &[(&str, &str)],
+) -> HookOutcome {
+    let home = make_hermetic_home();
+    let home_path = home.path().to_path_buf();
+    let tmp_path = home.path().join("tmp");
+    let config_dir = home.path().join(".config/dcg");
+    std::fs::create_dir_all(&tmp_path).ok();
+    std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
+    std::fs::write(config_dir.join("config.toml"), config_toml).expect("failed to write config");
+
+    let system_path = std::env::var("PATH").unwrap_or_default();
+
+    let mut cmd = Command::new(dcg_binary());
+    cmd.env_clear()
+        .env("PATH", &system_path)
+        .env("HOME", home.path())
+        .env("TMPDIR", &tmp_path)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+
+    let mut child = cmd.spawn().expect("failed to spawn dcg process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        if let Err(err) = stdin.write_all(json_bytes) {
+            assert_eq!(
+                err.kind(),
+                ErrorKind::BrokenPipe,
+                "failed to write to stdin: {err}"
+            );
+        }
+    }
+
+    let output = child.wait_with_output().expect("failed to wait for dcg");
 
     HookOutcome {
         stdout: output.stdout,
@@ -319,6 +389,61 @@ fn copilot_tool_args_without_tool_name_blocks_destructive_command() {
     assert_eq!(json["permissionDecision"], "deny", "{outcome}");
     assert_eq!(json["ruleId"], "core.git:reset-hard", "{outcome}");
     assert_eq!(json["continue"], false, "{outcome}");
+}
+
+#[test]
+fn codex_protocol_applies_codex_agent_profile_without_env() {
+    let payload = build_codex_payload("git reset --hard HEAD~1");
+    let outcome = run_hook_raw_with_config(
+        payload.as_bytes(),
+        r#"[agents.codex-cli]
+additional_allowlist = ["git reset --hard HEAD~1"]
+"#,
+        &[],
+    );
+
+    assert!(
+        outcome.is_allow_shape(),
+        "Codex hook protocol should select codex-cli profile even without CODEX_CLI env\n{outcome}"
+    );
+}
+
+#[test]
+fn gemini_protocol_applies_gemini_agent_profile_without_env() {
+    let payload = build_gemini_payload("git reset --hard HEAD~1");
+    let outcome = run_hook_raw_with_config(
+        payload.as_bytes(),
+        r#"[agents.gemini-cli]
+additional_allowlist = ["git reset --hard HEAD~1"]
+"#,
+        &[],
+    );
+
+    assert!(
+        outcome.is_allow_shape(),
+        "Gemini hook protocol should select gemini-cli profile even without GEMINI_CLI env\n{outcome}"
+    );
+}
+
+#[test]
+fn copilot_protocol_applies_copilot_agent_profile_without_env() {
+    let payload = serde_json::json!({
+        "event": "pre-tool-use",
+        "toolArgs": serde_json::json!({ "command": "git reset --hard HEAD~1" }).to_string(),
+    })
+    .to_string();
+    let outcome = run_hook_raw_with_config(
+        payload.as_bytes(),
+        r#"[agents.copilot-cli]
+additional_allowlist = ["git reset --hard HEAD~1"]
+"#,
+        &[],
+    );
+
+    assert!(
+        outcome.is_allow_shape(),
+        "Copilot hook protocol should select copilot-cli profile even without COPILOT_CLI env\n{outcome}"
+    );
 }
 
 // ---------------------------------------------------------------------------
