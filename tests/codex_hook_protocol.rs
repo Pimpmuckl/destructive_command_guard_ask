@@ -1492,8 +1492,9 @@ fn disable_core_filesystem_still_blocks_git_claude() {
 // ===========================================================================
 // P2.11 — Allow-once round-trip under Codex
 //
-// Under Codex, allow-once code is in stderr (not stdout JSON). Extract it
-// from the colored deny block, redeem it, then retry — the command must pass.
+// Under Codex, the model-visible stderr denial must not expose allow-once
+// tokens. The pending store still records the generated code so a human or
+// harness can redeem it explicitly, then retry — the command must pass.
 // ===========================================================================
 
 /// Extract the allow-once short_code from the pending_exceptions.jsonl

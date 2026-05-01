@@ -1859,6 +1859,10 @@ mod tests {
             "stderr must contain the rule id for agent parsing; got: {stderr_str}"
         );
         assert!(
+            stderr_str.contains("Rule: core.git:reset-hard"),
+            "Codex stderr must expose the full rule id as a parseable footer; got: {stderr_str}"
+        );
+        assert!(
             !stderr_str.contains("dcg allowlist add"),
             "Codex stderr must not teach the model to self-allowlist; got: {stderr_str}"
         );
