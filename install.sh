@@ -1359,6 +1359,7 @@ configure_gemini() {
   local settings_file="$1"
   local settings_dir=$(dirname "$settings_file")
   GEMINI_FAILURE_REASON=""
+  GEMINI_BACKUP=""
 
   # Check if Gemini CLI appears to be installed (has config dir or gemini command exists)
   if [ ! -d "$settings_dir" ] && ! command -v gemini >/dev/null 2>&1; then
