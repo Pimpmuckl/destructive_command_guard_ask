@@ -15,8 +15,8 @@ No unreleased changes yet.
 
 ## [v0.4.9](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.9) -- 2026-05-01 [Release]
 
-Patch release after v0.4.8 for the remaining DCG-specific output environment
-flag semantics that need to ship in prebuilt binaries.
+Patch release after v0.4.8 for the remaining DCG-specific environment flag
+semantics and release validation fixes that need to ship in prebuilt binaries.
 
 ### CLI Reliability
 
@@ -28,9 +28,20 @@ flag semantics that need to ship in prebuilt binaries.
   non-clap output paths, so values such as `0`, `false`, `no`, and `off` no
   longer disable colors or rich output by mere presence
   ([14f1aac](https://github.com/Dicklesworthstone/destructive_command_guard/commit/14f1aac)).
+- Applied the same falsey-value semantics to `DCG_NO_UPDATE_CHECK` and
+  `DCG_NO_SELF_HEAL`, so `0`, `false`, `no`, `n`, and `off` no longer disable
+  update checks or self-healing by mere presence
+  ([27ac314](https://github.com/Dicklesworthstone/destructive_command_guard/commit/27ac314)).
 - Kept Linux-only allowlist process inspection imports behind a Linux cfg so
   macOS and Windows release builds stay warning-clean
   ([bdcbb9b](https://github.com/Dicklesworthstone/destructive_command_guard/commit/bdcbb9b)).
+
+### Release Validation
+
+- Isolated the Codex subprocess memory test HOME so stale pending-exception
+  state from previous local runs cannot turn an expected Codex deny into an
+  allow during release gates
+  ([29d870c](https://github.com/Dicklesworthstone/destructive_command_guard/commit/29d870c)).
 
 ## [v0.4.8](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.4.8) -- 2026-05-01 [Release]
 
