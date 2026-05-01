@@ -625,25 +625,6 @@ fn main() {
     let pattern = info.pattern_name.as_deref();
     let explanation = info.explanation.as_deref();
 
-    if let Some(writer) = history_writer.as_ref() {
-        let outcome = match mode {
-            DecisionMode::Deny => HistoryOutcome::Deny,
-            DecisionMode::Warn => HistoryOutcome::Warn,
-            DecisionMode::Log => HistoryOutcome::Allow,
-        };
-        let entry = build_history_entry(
-            history_agent_type,
-            &command,
-            &working_dir,
-            outcome,
-            eval_duration,
-            pack,
-            pattern,
-            None,
-        );
-        writer.log(entry);
-    }
-
     // Rebase-recovery unblock (issue #104).
     //
     // Before emitting a hard deny, check whether this is one of the narrow
@@ -693,6 +674,25 @@ fn main() {
                 return;
             }
         }
+    }
+
+    if let Some(writer) = history_writer.as_ref() {
+        let outcome = match mode {
+            DecisionMode::Deny => HistoryOutcome::Deny,
+            DecisionMode::Warn => HistoryOutcome::Warn,
+            DecisionMode::Log => HistoryOutcome::Allow,
+        };
+        let entry = build_history_entry(
+            history_agent_type,
+            &command,
+            &working_dir,
+            outcome,
+            eval_duration,
+            pack,
+            pattern,
+            None,
+        );
+        writer.log(entry);
     }
 
     match mode {

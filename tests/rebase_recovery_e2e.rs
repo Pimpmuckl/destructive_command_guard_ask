@@ -11,6 +11,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use destructive_command_guard::history::HistoryDb;
+use fsqlite_types::value::SqliteValue;
+
 fn dcg_binary() -> PathBuf {
     let mut path = std::env::current_exe().unwrap();
     path.pop(); // deps
@@ -22,29 +25,51 @@ fn dcg_binary() -> PathBuf {
 /// Run the dcg hook with `command` and `cwd`, returning stdout.
 /// Empty stdout ⇒ command was allowed.
 fn run_hook_in(cwd: &Path, command: &str) -> String {
+    let output = run_hook_in_with_env(cwd, command, &[]);
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn run_hook_in_with_env(
+    cwd: &Path,
+    command: &str,
+    extra_env: &[(&str, &Path)],
+) -> std::process::Output {
     let input = serde_json::json!({
         "tool_name": "Bash",
         "tool_input": { "command": command },
     });
 
-    let mut child = Command::new(dcg_binary())
-        .current_dir(cwd)
+    let mut cmd = Command::new(dcg_binary());
+    cmd.current_dir(cwd)
         // Keep tests hermetic: don't share the test user's real dcg state.
         .env("HOME", cwd)
         .env("XDG_CONFIG_HOME", cwd.join("xdg"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("failed to spawn dcg");
+        .stderr(std::process::Stdio::piped());
+
+    for (key, value) in extra_env {
+        cmd.env(key, value);
+    }
+
+    let mut child = cmd.spawn().expect("failed to spawn dcg");
 
     {
         let stdin = child.stdin.as_mut().expect("failed to open stdin");
         serde_json::to_writer(stdin, &input).expect("failed to write json");
     }
 
-    let output = child.wait_with_output().expect("failed to wait for dcg");
-    String::from_utf8_lossy(&output.stdout).to_string()
+    child.wait_with_output().expect("failed to wait for dcg")
+}
+
+fn sv_to_string(value: &SqliteValue) -> String {
+    match value {
+        SqliteValue::Text(s) => s.to_string(),
+        SqliteValue::Integer(i) => i.to_string(),
+        SqliteValue::Float(f) => f.to_string(),
+        SqliteValue::Null => String::new(),
+        SqliteValue::Blob(_) => String::new(),
+    }
 }
 
 /// Spawn `dcg rebase-recover` with a specific `ttl` in the given cwd.
@@ -129,6 +154,48 @@ fn allows_checkout_discard_during_rebase() {
         out.trim().is_empty(),
         "expected allow (empty output), got: {out}"
     );
+}
+
+#[test]
+fn rebase_recovery_history_records_final_allow_only() {
+    let repo = TempRepo::new("history-final-outcome");
+    repo.start_rebase_merge();
+
+    let config_path = repo.root.join("config.toml");
+    let history_path = repo.root.join("history.db");
+    fs::write(&config_path, "[history]\nenabled = true\n").unwrap();
+
+    let output = run_hook_in_with_env(
+        &repo.root,
+        "git checkout -- .",
+        &[
+            ("DCG_CONFIG", &config_path),
+            ("DCG_HISTORY_DB", &history_path),
+        ],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rebase recovery allow should exit 0\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.trim().is_empty(),
+        "expected allow (empty output), got: {stdout}"
+    );
+
+    let db = HistoryDb::open(Some(history_path)).expect("open history db");
+    assert_eq!(db.count_commands().expect("count commands"), 1);
+
+    let row = db
+        .connection()
+        .query_row("SELECT outcome, allowlist_layer FROM commands")
+        .expect("query history row");
+    let values = row.values();
+
+    assert_eq!(sv_to_string(&values[0]), "allow");
+    assert_eq!(sv_to_string(&values[1]), "rebase-recovery");
 }
 
 #[test]
