@@ -13,7 +13,7 @@
 
 A high-performance hook for AI coding agents that blocks destructive commands before they execute, protecting your work from accidental deletion.
 
-**Supported:** [Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-hooks), [Cursor IDE](https://cursor.com), [OpenCode](https://opencode.ai) (via [community plugin](https://github.com/aspiers/ai-config/blob/main/.config/opencode/plugins/dcg-guard.js)), [Aider](https://aider.chat/) (limited—git hooks only), [Continue](https://continue.dev) (detection only), [Codex CLI](https://github.com/openai/codex)
+**Supported:** [Claude Code](https://claude.ai/code), [Codex CLI 0.125.0+](https://github.com/openai/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), [GitHub Copilot CLI](https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-hooks), [Cursor IDE](https://cursor.com), [OpenCode](https://opencode.ai) (via [community plugin](https://github.com/aspiers/ai-config/blob/main/.config/opencode/plugins/dcg-guard.js)), [Aider](https://aider.chat/) (limited—git hooks only), [Continue](https://continue.dev) (detection only)
 
 <div align="center">
 <h3>Quick Install</h3>
@@ -22,7 +22,7 @@ A high-performance hook for AI coding agents that blocks destructive commands be
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
-<p><em>Works on Linux, macOS, and Windows (WSL). Auto-detects your platform and downloads the right binary.</em></p>
+<p><em>Works on Linux, macOS, and Windows (WSL). Auto-detects your platform, downloads the right binary, and configures supported agent hooks including Claude Code, Codex CLI, and Gemini CLI.</em></p>
 </div>
 
 ---
@@ -638,7 +638,7 @@ The easiest way to install is using the install script, which downloads a prebui
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
-Easy mode auto-detects your platform, downloads the right binary, verifies SHA256 checksums, configures all supported AI agent hooks (Claude Code, Gemini CLI, Copilot CLI, Aider, Codex CLI), and updates your PATH.
+Easy mode auto-detects your platform, downloads the right binary, verifies SHA256 checksums, configures all supported AI agent hooks (Claude Code, Codex CLI, Gemini CLI, Copilot CLI, Aider), and updates your PATH. For Codex CLI 0.125.0+, the installer merges a `PreToolUse` Bash hook into `~/.codex/hooks.json`; invalid existing Codex hook config is left unchanged and reported instead of being overwritten.
 
 **Other options:**
 
@@ -681,7 +681,7 @@ The installer also verifies Sigstore cosign bundles when available (falls back t
 
 - **Aider:** No PreToolUse-style interception. The installer enables `git-commit-verify: true` in `~/.aider.conf.yml` so git hooks run. For full protection, install dcg as a [git pre-commit hook](docs/scan-precommit-guide.md).
 - **Continue:** No shell command interception hooks. The installer detects Continue but cannot auto-configure protection. Use a [git pre-commit hook](docs/scan-precommit-guide.md) instead.
-- **Codex CLI:** PreToolUse hooks via `~/.codex/hooks.json` (stable in codex 0.125.0+; the `codex_hooks` feature is on by default). Codex's hook input shape mirrors Claude Code's, but its JSON deny parser is strict (`#[serde(deny_unknown_fields)]`), so dcg detects Codex from the `turn_id` stdin field (codex's documented extension over Claude's hook spec) and switches to Codex's documented stderr deny path with exit code 2; the colored block message goes to stderr where codex shows it to the model. See the [Codex integration notes](docs/codex-integration.md). Caveat: the model can still write scripts to disk to bypass hook-based blocking. **Windows note:** `install.ps1` now detects Codex and merges a dcg `PreToolUse` Bash hook into `%USERPROFILE%\.codex\hooks.json`; `uninstall.ps1` removes only dcg hooks and preserves coexisting entries.
+- **Codex CLI:** PreToolUse hooks via `~/.codex/hooks.json` (stable in Codex 0.125.0+; the `codex_hooks` feature is on by default). Codex's hook input shape mirrors Claude Code's, but its JSON deny parser is strict (`#[serde(deny_unknown_fields)]`), so dcg detects Codex from the `turn_id` stdin field and switches to Codex's documented stderr deny path with exit code 2; the colored block message goes to stderr where Codex shows it to the model. The Unix installer and `install.ps1` both merge dcg's hook into the existing hooks object, detect an already-current dcg hook exactly, leave invalid JSON untouched, and surface the failure reason in the install summary. `uninstall.sh` and `uninstall.ps1` remove only dcg-owned Codex hooks and preserve coexisting entries. See the [Codex integration notes](docs/codex-integration.md). Caveat: the model can still write scripts to disk to bypass hook-based blocking.
 - **GitHub Copilot CLI:** Hooks are repository-local (`.github/hooks/*.json`). Run the installer from each repository where you want protection.
 - **OpenCode:** Not auto-configured. Requires a Bun-based plugin with `"tool.execute.before"` hook key. A working community plugin: [aspiers/ai-config/dcg-guard.js](https://github.com/aspiers/ai-config/blob/main/.config/opencode/plugins/dcg-guard.js).
 
@@ -1398,7 +1398,7 @@ non-TTY output, dumb terminals, and no-color environments.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│            Claude Code / Gemini CLI / Copilot CLI                │
+│       Claude Code / Codex CLI / Gemini CLI / Copilot CLI         │
 │                                                                  │
 │  User: "delete the build artifacts"                             │
 │  Agent: executes `rm -rf ./build`                               │
@@ -1430,7 +1430,7 @@ non-TTY output, dumb terminals, and no-color environments.
                       ▼ stdout: JSON deny / empty allow
                         stderr: rich human output / Codex deny reason
 ┌─────────────────────────────────────────────────────────────────┐
-│            Claude Code / Gemini CLI / Copilot CLI                │
+│       Claude Code / Codex CLI / Gemini CLI / Copilot CLI         │
 │                                                                  │
 │  If denied: Shows block message, does NOT execute command       │
 │  If allowed: Proceeds with command execution                    │
