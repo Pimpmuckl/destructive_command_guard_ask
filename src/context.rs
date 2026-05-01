@@ -2014,6 +2014,10 @@ fn consume_word_token(command: &str, bytes: &[u8], mut i: usize, len: usize) -> 
                 has_inline_code = true;
                 i = consume_dollar_paren(command, i);
             }
+            b'<' | b'>' if i + 1 < len && bytes[i + 1] == b'(' => {
+                has_inline_code = true;
+                i = consume_process_substitution(command, i);
+            }
             b'`' => {
                 has_inline_code = true;
                 i = consume_backticks(command, i);
@@ -2025,6 +2029,71 @@ fn consume_word_token(command: &str, bytes: &[u8], mut i: usize, len: usize) -> 
     }
 
     (i, has_inline_code)
+}
+
+#[must_use]
+fn consume_process_substitution(command: &str, start: usize) -> usize {
+    let bytes = command.as_bytes();
+    let len = bytes.len();
+
+    debug_assert!(matches!(bytes.get(start), Some(b'<' | b'>')));
+    debug_assert!(bytes.get(start + 1) == Some(&b'('));
+
+    let mut i = start + 2;
+    let mut depth: u32 = 1;
+
+    while i < len {
+        match bytes[i] {
+            b'(' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' => {
+                if depth == 1 {
+                    return i + 1;
+                }
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            b'\\' => {
+                i = (i + 2).min(len);
+            }
+            b'\'' => {
+                i += 1;
+                while i < len && bytes[i] != b'\'' {
+                    i += 1;
+                }
+                if i < len {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < len {
+                    match bytes[i] {
+                        b'"' => {
+                            i += 1;
+                            break;
+                        }
+                        b'\\' => {
+                            i = (i + 2).min(len);
+                        }
+                        b'$' if i + 1 < len && bytes[i + 1] == b'(' => {
+                            i = consume_dollar_paren_recursive(command, i, 1);
+                        }
+                        _ => {
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    len
 }
 
 #[must_use]
@@ -2975,6 +3044,28 @@ mod tests {
 
         // Inline code must remain visible to the pattern matcher.
         assert!(matches!(sanitized, std::borrow::Cow::Borrowed(_)));
+        assert!(sanitized.as_ref().contains("rm -rf"));
+    }
+
+    #[test]
+    fn sanitize_does_not_strip_input_process_substitution() {
+        let cmd = "echo <(rm -rf /)";
+        let sanitized = sanitize_for_pattern_matching(cmd);
+
+        // Process substitution executes a command even when passed to an
+        // otherwise data-only command such as echo.
+        assert!(matches!(sanitized, std::borrow::Cow::Borrowed(_)));
+        assert!(sanitized.as_ref().contains("rm -rf"));
+    }
+
+    #[test]
+    fn sanitize_does_not_strip_output_process_substitution() {
+        let cmd = "printf %s >(rm -rf /tmp/not-safe)";
+        let sanitized = sanitize_for_pattern_matching(cmd);
+
+        // Output process substitution also executes the inner command. printf
+        // may still mask its harmless format string, so only require the
+        // executable substitution content to remain visible.
         assert!(sanitized.as_ref().contains("rm -rf"));
     }
 
