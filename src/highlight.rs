@@ -536,6 +536,29 @@ pub fn format_highlighted_command_multi(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    static COLOR_OVERRIDE_LOCK: Mutex<()> = Mutex::new(());
+
+    struct ColorOverrideGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl ColorOverrideGuard {
+        fn force_color() -> Self {
+            let lock = COLOR_OVERRIDE_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            colored::control::set_override(true);
+            Self { _lock: lock }
+        }
+    }
+
+    impl Drop for ColorOverrideGuard {
+        fn drop(&mut self) {
+            colored::control::unset_override();
+        }
+    }
 
     #[test]
     fn test_highlight_span_new() {
@@ -1011,8 +1034,7 @@ mod tests {
 
     #[test]
     fn test_ansi_escapes_present_when_color_enabled() {
-        // Force color on for this test
-        colored::control::set_override(true);
+        let _color_override = ColorOverrideGuard::force_color();
 
         let cmd = "git reset --hard HEAD";
         let span = HighlightSpan::with_label(0, 16, "Dangerous");
@@ -1026,15 +1048,11 @@ mod tests {
             result.caret_line.contains(ansi_escape),
             "Caret line should contain ANSI escapes when color is enabled"
         );
-
-        // Reset color override
-        colored::control::unset_override();
     }
 
     #[test]
     fn test_colorize_command_produces_ansi_codes() {
-        // Force color on for this test
-        colored::control::set_override(true);
+        let _color_override = ColorOverrideGuard::force_color();
 
         let cmd = "git reset --hard";
         let span = WindowedSpan { start: 0, end: 16 };
@@ -1046,9 +1064,6 @@ mod tests {
             result.contains(ansi_escape),
             "Colorized command should contain ANSI escapes"
         );
-
-        // Reset color override
-        colored::control::unset_override();
     }
 
     #[test]
@@ -1083,7 +1098,7 @@ mod tests {
 
     #[test]
     fn test_manual_regex_pattern_highlights_metacharacters() {
-        colored::control::set_override(true);
+        let _color_override = ColorOverrideGuard::force_color();
 
         let pattern = r"^(git|rm)\s+.+$";
         let highlighted = format_regex_pattern_manual(pattern);
@@ -1092,8 +1107,6 @@ mod tests {
         assert!(highlighted.contains("git"));
         assert!(highlighted.contains("rm"));
         assert!(highlighted.contains('\\'));
-
-        colored::control::unset_override();
     }
 
     #[test]
@@ -1108,8 +1121,7 @@ mod tests {
 
     #[test]
     fn test_color_for_build_caret_line() {
-        // Force color on for this test
-        colored::control::set_override(true);
+        let _color_override = ColorOverrideGuard::force_color();
 
         let span = WindowedSpan { start: 3, end: 8 };
         let result = build_caret_line(&span, true);
@@ -1118,9 +1130,6 @@ mod tests {
         assert!(result.contains('\x1b'));
         // Should still have carets
         assert!(result.contains('^'));
-
-        // Reset color override
-        colored::control::unset_override();
     }
 
     #[test]
@@ -1136,8 +1145,7 @@ mod tests {
 
     #[test]
     fn test_color_for_build_label_line() {
-        // Force color on for this test
-        colored::control::set_override(true);
+        let _color_override = ColorOverrideGuard::force_color();
 
         let span = WindowedSpan { start: 5, end: 10 };
         let result = build_label_line(&span, "Test Label", true);
@@ -1145,9 +1153,6 @@ mod tests {
         // Should contain ANSI codes
         assert!(result.contains('\x1b'));
         assert!(result.contains("Test Label"));
-
-        // Reset color override
-        colored::control::unset_override();
     }
 
     // =========================================================================
