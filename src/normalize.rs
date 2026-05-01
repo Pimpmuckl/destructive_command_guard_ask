@@ -2199,77 +2199,77 @@ fn test_mixed_quoting_normalization() {
 }
 
 #[test]
-    fn test_attached_redirection_normalization_after_quoted_command() {
-        assert_eq!(
-            normalize_command_word_token(r#""git">/dev/null"#),
-            Some("git >/dev/null".to_string())
-        );
+fn test_attached_redirection_normalization_after_quoted_command() {
+    assert_eq!(
+        normalize_command_word_token(r#""git">/dev/null"#),
+        Some("git >/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token(r#""git"&>/dev/null"#),
-            Some("git &>/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token(r#""git"&>/dev/null"#),
+        Some("git &>/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token(r#""git"&>>/dev/null"#),
-            Some("git &>>/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token(r#""git"&>>/dev/null"#),
+        Some("git &>>/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token("git&>/dev/null"),
-            Some("git &>/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token("git&>/dev/null"),
+        Some("git &>/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token("git&>>/dev/null"),
-            Some("git &>>/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token("git&>>/dev/null"),
+        Some("git &>>/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token("git>/dev/null"),
-            Some("git >/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token("git>/dev/null"),
+        Some("git >/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command_word_token("git>>/dev/null"),
-            Some("git >>/dev/null".to_string())
-        );
+    assert_eq!(
+        normalize_command_word_token("git>>/dev/null"),
+        Some("git >>/dev/null".to_string())
+    );
 
-        assert_eq!(
-            normalize_command(r#""git">/dev/null reset --hard"#).as_ref(),
-            "git >/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command(r#""git">/dev/null reset --hard"#).as_ref(),
+        "git >/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command(r#""git"&>/dev/null reset --hard"#).as_ref(),
-            "git &>/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command(r#""git"&>/dev/null reset --hard"#).as_ref(),
+        "git &>/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command(r#""git"&>>/dev/null reset --hard"#).as_ref(),
-            "git &>>/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command(r#""git"&>>/dev/null reset --hard"#).as_ref(),
+        "git &>>/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command("git&>/dev/null reset --hard").as_ref(),
-            "git &>/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command("git&>/dev/null reset --hard").as_ref(),
+        "git &>/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command("git&>>/dev/null reset --hard").as_ref(),
-            "git &>>/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command("git&>>/dev/null reset --hard").as_ref(),
+        "git &>>/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command("git>/dev/null reset --hard").as_ref(),
-            "git >/dev/null reset --hard"
-        );
+    assert_eq!(
+        normalize_command("git>/dev/null reset --hard").as_ref(),
+        "git >/dev/null reset --hard"
+    );
 
-        assert_eq!(
-            normalize_command("git>>/dev/null reset --hard").as_ref(),
-            "git >>/dev/null reset --hard"
-        );
-    }
+    assert_eq!(
+        normalize_command("git>>/dev/null reset --hard").as_ref(),
+        "git >>/dev/null reset --hard"
+    );
+}
 
 #[test]
 fn test_attached_redirection_normalization_strips_exe_suffix() {
