@@ -1064,8 +1064,10 @@ pub(crate) fn write_warning_to(
             let _ = writeln!(stdout);
         }
         HookProtocol::Gemini => {
+            // Gemini hooks support allow/deny only. Preserve dcg warn as
+            // non-blocking while still surfacing the warning text to Gemini.
             let output = GeminiHookOutput {
-                decision: "ask",
+                decision: "allow",
                 reason: Cow::Owned(warn_reason.clone()),
                 system_message: Some(Cow::Owned(warn_reason)),
                 allow_once_code: None,
@@ -1504,9 +1506,9 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_warn_ask_json_shape() {
+    fn test_gemini_warn_allow_json_shape() {
         let output = GeminiHookOutput {
-            decision: "ask",
+            decision: "allow",
             reason: Cow::Borrowed("DCG warn: risky pattern"),
             system_message: Some(Cow::Borrowed("DCG warn: risky pattern")),
             allow_once_code: None,
@@ -1518,7 +1520,7 @@ mod tests {
             remediation: None,
         };
         let json = serde_json::to_value(&output).unwrap();
-        assert_eq!(json["decision"], "ask");
+        assert_eq!(json["decision"], "allow");
         assert!(json["reason"].as_str().unwrap().starts_with("DCG warn:"));
     }
 
@@ -1990,7 +1992,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_warning_gemini_produces_ask_json() {
+    fn test_write_warning_gemini_produces_allow_json() {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
@@ -2009,7 +2011,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(stdout_str.trim())
             .unwrap_or_else(|e| panic!("stdout not valid JSON: {e}\nstdout: {stdout_str}"));
 
-        assert_eq!(json["decision"], "ask");
+        assert_eq!(json["decision"], "allow");
         assert!(json["reason"].as_str().unwrap().starts_with("DCG warn:"));
     }
 
