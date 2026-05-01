@@ -158,18 +158,13 @@ impl Default for DcgConsole {
 /// Get a console instance appropriate for the current environment.
 ///
 /// The console respects:
-/// - `DCG_NO_RICH` environment variable (forces plain output)
+/// - `DCG_NO_RICH` environment variable (forces plain output when enabled)
 /// - `NO_COLOR` environment variable (forces plain output)
 /// - `CI` environment variable (forces plain output)
 /// - TTY detection (non-TTY forces plain output)
 #[must_use]
 pub fn console() -> DcgConsole {
     let use_rich = *USE_RICH.get_or_init(|| {
-        // Check DCG-specific environment variable
-        if std::env::var("DCG_NO_RICH").is_ok() {
-            return false;
-        }
-
         // Use the existing rich output detection
         crate::output::should_use_rich_output()
     });

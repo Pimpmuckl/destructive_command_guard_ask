@@ -65,7 +65,9 @@ const CARGO_TARGET: Option<&str> = option_env!("VERGEN_CARGO_TARGET_TRIPLE");
 ///
 /// Disables colors if stderr is not a terminal (e.g., piped to a file).
 fn configure_colors() {
-    if std::env::var_os("NO_COLOR").is_some() || std::env::var_os("DCG_NO_COLOR").is_some() {
+    if std::env::var_os("NO_COLOR").is_some()
+        || destructive_command_guard::output::env_flag_enabled("DCG_NO_COLOR")
+    {
         colored::control::set_override(false);
         return;
     }

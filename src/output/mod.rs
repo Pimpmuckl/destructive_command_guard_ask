@@ -83,7 +83,8 @@ pub fn init_suggestions(enabled: bool) {
 ///
 /// Returns `true` if all of the following are true:
 /// - `--no-color` flag was not passed (or `init(false)` was called)
-/// - `DCG_NO_RICH`, `NO_COLOR`, and `DCG_NO_COLOR` environment variables are not set
+/// - `DCG_NO_RICH` and `DCG_NO_COLOR` environment variables are not enabled
+/// - `NO_COLOR` environment variable is not set
 /// - `CI` environment variable is not set
 /// - stdout is a TTY
 /// - TERM is not "dumb"
@@ -119,9 +120,9 @@ fn should_use_rich_output_with_env(
     }
 
     // 2. Check explicit environment disables.
-    if env_var("DCG_NO_RICH").is_some()
+    if env_flag_enabled_with(&mut env_var, "DCG_NO_RICH")
         || env_var("NO_COLOR").is_some()
-        || env_var("DCG_NO_COLOR").is_some()
+        || env_flag_enabled_with(&mut env_var, "DCG_NO_COLOR")
     {
         return false;
     }
@@ -206,11 +207,32 @@ pub fn auto_theme_with_config(config: &Config) -> Theme {
     theme
 }
 
-fn env_flag_enabled(var: &str) -> bool {
-    std::env::var(var).is_ok_and(|value| env_flag_value_enabled(&value))
+/// Returns whether a DCG-owned environment flag is enabled.
+///
+/// Missing variables and documented falsey values are disabled. Non-Unicode
+/// values are treated as enabled because they are present and cannot be parsed
+/// as a documented falsey value.
+pub fn env_flag_enabled(var: &str) -> bool {
+    std::env::var_os(var).is_some_and(|value| env_flag_os_value_enabled(&value))
 }
 
-fn env_flag_value_enabled(value: &str) -> bool {
+fn env_flag_enabled_with(
+    env_var: &mut impl FnMut(&str) -> Option<std::ffi::OsString>,
+    var: &str,
+) -> bool {
+    env_var(var).is_some_and(|value| env_flag_os_value_enabled(&value))
+}
+
+fn env_flag_os_value_enabled(value: &std::ffi::OsStr) -> bool {
+    value.to_str().is_none_or(env_flag_value_enabled)
+}
+
+/// Returns whether a DCG-owned environment flag value is enabled.
+///
+/// These semantics intentionally match the CLI's documented boolean env
+/// parsing: empty string, `0`, `false`, `no`, and `off` are disabled; every
+/// other UTF-8 value is enabled.
+pub fn env_flag_value_enabled(value: &str) -> bool {
     !matches!(
         value.trim().to_lowercase().as_str(),
         "" | "0" | "false" | "no" | "off"
@@ -364,6 +386,18 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_invalid_unicode_env_flag_value_is_enabled() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let invalid_utf8 = OsString::from_vec(vec![0xff]);
+
+        assert!(!should_use_rich_output_with_env(false, true, |name| {
+            (name == "DCG_NO_RICH").then(|| invalid_utf8.clone())
+        }));
+    }
+
     #[test]
     fn test_dcg_no_rich_disables_rich_output() {
         assert!(!should_use_rich_output_with_env(
@@ -371,6 +405,16 @@ mod tests {
             true,
             test_env(&[("DCG_NO_RICH", "1")])
         ));
+    }
+
+    #[test]
+    fn test_dcg_no_rich_falsey_does_not_disable_rich_output() {
+        for value in ["0", "false", "no", "off", ""] {
+            assert!(
+                should_use_rich_output_with_env(false, true, test_env(&[("DCG_NO_RICH", value)])),
+                "DCG_NO_RICH={value:?} should not disable rich output"
+            );
+        }
     }
 
     #[test]
@@ -389,6 +433,16 @@ mod tests {
             true,
             test_env(&[("DCG_NO_COLOR", "1")])
         ));
+    }
+
+    #[test]
+    fn test_dcg_no_color_falsey_does_not_disable_rich_output() {
+        for value in ["0", "false", "no", "off", ""] {
+            assert!(
+                should_use_rich_output_with_env(false, true, test_env(&[("DCG_NO_COLOR", value)])),
+                "DCG_NO_COLOR={value:?} should not disable rich output"
+            );
+        }
     }
 
     #[test]

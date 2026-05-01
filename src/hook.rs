@@ -502,7 +502,7 @@ pub fn extract_command(input: &HookInput) -> Option<String> {
 
 /// Configure colored output based on TTY detection.
 pub fn configure_colors() {
-    if std::env::var_os("NO_COLOR").is_some() || std::env::var_os("DCG_NO_COLOR").is_some() {
+    if std::env::var_os("NO_COLOR").is_some() || crate::output::env_flag_enabled("DCG_NO_COLOR") {
         colored::control::set_override(false);
         return;
     }
