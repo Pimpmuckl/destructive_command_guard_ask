@@ -1859,16 +1859,35 @@ fn parse_heredoc_delimiter(after_op: &str) -> Option<(String, usize, HeredocType
         return None;
     }
 
-    // Bash allows `<<-` and `<<~` as tab-stripping markers. Both are followed
-    // by an optional run of whitespace before the delimiter (e.g.
-    // `cat <<- 'EOF'` is valid). Without consuming that whitespace, the
-    // delimiter parser falls through to the unquoted branch with a leading
-    // space and bails — the heredoc body then escapes masking and pack
-    // matching denies prose like "gh repo delete" inside `cat <<- 'EOF'`
-    // (issue #109).
-    let (heredoc_type, marker_len) = if let Some(rest) = trimmed.strip_prefix(['-', '~']) {
-        let _ = rest; // documentation only — body skipped via marker_len.
-        (HeredocType::TabStripped, 1)
+    // `<<-` strips leading tabs from each body line (bash); `<<~` is the
+    // Ruby-style "squiggly" heredoc that strips the common leading
+    // indentation. Both accept an optional run of whitespace before the
+    // delimiter (e.g. `cat <<- 'EOF'` is valid). Without consuming that
+    // whitespace, the delimiter parser falls through to the unquoted branch
+    // with a leading space and bails — the heredoc body then escapes masking
+    // and pack matching denies prose like "gh repo delete" inside
+    // `cat <<- 'EOF'` (issue #109).
+    //
+    // The marker MUST be adjacent to `<<` (no whitespace between them).
+    // `cat << -EOF` is bash-legal as a Standard heredoc whose delimiter is
+    // the literal `-EOF`; the `-` is part of the delimiter token rather
+    // than a tab-strip marker. We disambiguate by checking that no leading
+    // whitespace was consumed before the candidate marker character.
+    //
+    // We must distinguish `-` from `~` here because the heredoc body
+    // terminator is matched by [`find_heredoc_terminator`] using the type:
+    // `TabStripped` strips only tabs, while `IndentStripped` strips all
+    // leading whitespace. Conflating the two means a `<<~` heredoc with
+    // space-indented terminator (`  EOF`) is never recognized, the body
+    // escapes masking, and pack matching produces false positives on
+    // documentation prose. The regex-based extractor in [`extract_heredocs`]
+    // already maps `~` to `IndentStripped`; this path must agree.
+    let (heredoc_type, marker_len) = if skip_whitespace == 0 {
+        match trimmed.as_bytes().first() {
+            Some(b'-') => (HeredocType::TabStripped, 1),
+            Some(b'~') => (HeredocType::IndentStripped, 1),
+            _ => (HeredocType::Standard, 0),
+        }
     } else {
         (HeredocType::Standard, 0)
     };
@@ -2837,6 +2856,70 @@ mod tests {
                     "{form}: quoted delimiter must set quoted=true"
                 );
             }
+        }
+
+        // Reviewer-eyes catch from the #109 follow-up: bash treats whitespace
+        // before the marker character as a hard divider, so `cat << -EOF`
+        // (note the space *before* the dash) is a Standard heredoc whose
+        // delimiter is the literal `-EOF`, not a tab-stripped heredoc with
+        // delimiter `EOF`. Pre-fix the parser would mis-classify, the
+        // terminator search would look for a line `EOF` rather than `-EOF`,
+        // and the heredoc body would either run past the real terminator
+        // or never close. The `~` variant cannot reach this path because
+        // the unquoted-delimiter regex char class is `[\w.-]+` (no tilde),
+        // so `<< ~FOO` is rejected by the regex before parse_heredoc_delimiter
+        // runs — only the dash variant is reachable.
+        #[test]
+        fn parses_dash_after_space_as_part_of_unquoted_delimiter() {
+            let cmd = "cat << -EOF\nbody line\n-EOF";
+            let result = extract_content(cmd, &ExtractionLimits::default());
+            let ExtractionResult::Extracted(contents) = result else {
+                panic!("Expected extraction, got {result:?}");
+            };
+            assert_eq!(contents.len(), 1, "expected single heredoc extraction");
+            assert_eq!(
+                contents[0].delimiter.as_deref(),
+                Some("-EOF"),
+                "delimiter must include the leading dash when there is whitespace before it"
+            );
+            assert!(
+                !contents[0].quoted,
+                "unquoted delimiter must set quoted=false"
+            );
+        }
+
+        // The mask path (`mask_non_executing_heredocs`) and the regex
+        // extraction path (`extract_heredocs`) must agree on heredoc type.
+        // The extractor maps `<<~` -> IndentStripped; if the masker maps
+        // it to TabStripped instead, a space-indented terminator like
+        // `  EOF` is never recognized (TabStripped only trims `\t`), the
+        // body escapes masking, and pack matching produces false positives
+        // on prose like `rm -rf /` inside `cat <<~EOF` documentation.
+        #[test]
+        fn masks_indent_stripped_heredoc_body_with_space_indented_terminator() {
+            let cmd = "cat <<~EOF\n  rm -rf /\n  EOF";
+            let masked = mask_non_executing_heredocs(cmd);
+            assert!(
+                matches!(masked, std::borrow::Cow::Owned(_)),
+                "expected the body to be masked (Cow::Owned), got Borrowed: {masked:?}"
+            );
+            assert!(
+                !masked.contains("rm -rf /"),
+                "masked output still contains body: {masked:?}"
+            );
+            // The spaced-quoted form must mask too — same path with extra
+            // whitespace between the marker and the delimiter (issue #109
+            // coverage).
+            let cmd = "cat <<~ 'EOF'\n  rm -rf /\n  EOF";
+            let masked = mask_non_executing_heredocs(cmd);
+            assert!(
+                matches!(masked, std::borrow::Cow::Owned(_)),
+                "expected the body to be masked (Cow::Owned), got Borrowed: {masked:?}"
+            );
+            assert!(
+                !masked.contains("rm -rf /"),
+                "masked output still contains body: {masked:?}"
+            );
         }
 
         #[test]
