@@ -1859,13 +1859,24 @@ fn parse_heredoc_delimiter(after_op: &str) -> Option<(String, usize, HeredocType
         return None;
     }
 
-    let (heredoc_type, delim_start) = if trimmed.starts_with('-') {
+    // Bash allows `<<-` and `<<~` as tab-stripping markers. Both are followed
+    // by an optional run of whitespace before the delimiter (e.g.
+    // `cat <<- 'EOF'` is valid). Without consuming that whitespace, the
+    // delimiter parser falls through to the unquoted branch with a leading
+    // space and bails — the heredoc body then escapes masking and pack
+    // matching denies prose like "gh repo delete" inside `cat <<- 'EOF'`
+    // (issue #109).
+    let (heredoc_type, marker_len) = if let Some(rest) = trimmed.strip_prefix(['-', '~']) {
+        let _ = rest; // documentation only — body skipped via marker_len.
         (HeredocType::TabStripped, 1)
     } else {
         (HeredocType::Standard, 0)
     };
 
-    let delim_chars = &trimmed[delim_start..];
+    let after_marker = &trimmed[marker_len..];
+    let after_marker_trimmed = after_marker.trim_start_matches([' ', '\t']);
+    let inter_whitespace = after_marker.len() - after_marker_trimmed.len();
+    let delim_chars = after_marker_trimmed;
 
     // Handle quoted delimiters
     let (delimiter, delim_len) = if let Some(stripped) = delim_chars.strip_prefix('"') {
@@ -1890,7 +1901,7 @@ fn parse_heredoc_delimiter(after_op: &str) -> Option<(String, usize, HeredocType
     };
 
     // Calculate total offset to body start (skip to newline)
-    let total_delim_offset = skip_whitespace + delim_start + delim_len;
+    let total_delim_offset = skip_whitespace + marker_len + inter_whitespace + delim_len;
     let remaining = &after_op[total_delim_offset..];
 
     // Find the newline that starts the body
