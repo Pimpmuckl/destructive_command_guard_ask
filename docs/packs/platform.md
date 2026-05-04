@@ -113,7 +113,7 @@ These patterns match safe commands that are always allowed:
 | `glab-variable-list` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+variable\s+list\b` |
 | `glab-release-list` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+release\s+list\b` |
 | `glab-release-view` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+release\s+view\b` |
-| `glab-api-explicit-get` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+api\b.*(?:-X\|--method)\s+GET\b` |
+| `glab-api-explicit-get` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+api\b.*(?:-X\s*\|--method(?:=\|\s+))GET\b` |
 
 ### Destructive Patterns (Blocked)
 

@@ -96,7 +96,7 @@ These patterns match safe commands that are always allowed:
 | `glab-ci-status` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+ci\s+status\b` |
 | `gitlab-runner-list` | `gitlab-runner(?:\s+--?\S+(?:\s+\S+)?)*\s+list\b` |
 | `gitlab-runner-status` | `gitlab-runner(?:\s+--?\S+(?:\s+\S+)?)*\s+status\b` |
-| `glab-api-explicit-get` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+api\b.*(?:-X\|--method)\s+GET\b` |
+| `glab-api-explicit-get` | `glab(?:\s+--?\S+(?:\s+\S+)?)*\s+api\b.*(?:-X\s*\|--method(?:=\|\s+))GET\b` |
 
 ### Destructive Patterns (Blocked)
 
