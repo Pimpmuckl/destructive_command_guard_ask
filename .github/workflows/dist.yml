@@ -101,6 +101,17 @@ jobs:
           # binary, unreadable file) shows up in the job log instead
           # of getting silently swallowed.
           binary="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          # Explicit existence check: without it, a missing binary
+          # would make `objdump -T <missing> | grep -q GLIBC_` return
+          # exit 1 (no match), the `if` would evaluate to false, and
+          # we'd echo "verified" against a binary that doesn't exist.
+          # That false negative is a release-engineering footgun
+          # (cargo could legitimately skip the build under caching
+          # weirdness), so guard the gate against it directly.
+          if [ ! -f "$binary" ]; then
+            echo "::error::expected built binary not found at $binary"
+            exit 1
+          fi
           if objdump -T "$binary" 2>&1 | grep -q "GLIBC_"; then
             echo "::error::musl binary unexpectedly contains GLIBC symbols — release would re-introduce #114"
             objdump -T "$binary" | grep "GLIBC_" || true
@@ -116,7 +127,12 @@ jobs:
           # aarch64 tarball contained an x86-64 ELF. Native ARM
           # runners in this matrix make that impossible by
           # construction, but the file-type check is cheap insurance.
-          arch_str="$(file "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}")"
+          binary="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          if [ ! -f "$binary" ]; then
+            echo "::error::expected built binary not found at $binary"
+            exit 1
+          fi
+          arch_str="$(file "$binary")"
           if ! echo "$arch_str" | grep -q "aarch64"; then
             echo "::error::aarch64 build produced a non-aarch64 binary — release would re-introduce #112"
             echo "$arch_str"
