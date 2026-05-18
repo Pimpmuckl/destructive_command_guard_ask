@@ -747,7 +747,7 @@ fn strip_command_wrapper(command: &str) -> Option<(String, StrippedWrapper)> {
     ))
 }
 
-fn starts_with_shell_redirection(s: &str) -> bool {
+pub(crate) fn starts_with_shell_redirection(s: &str) -> bool {
     let bytes = s.trim_start().as_bytes();
     if bytes.is_empty() {
         return false;

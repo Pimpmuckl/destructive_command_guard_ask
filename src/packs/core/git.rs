@@ -369,14 +369,22 @@ fn create_destructive_patterns() -> Vec<DestructivePattern> {
             }
         ),
         // branch -D/-f force deletes or overwrites without checks (Medium: recoverable via reflog).
-        // `(?:\S+\s+)*` consumes intermediate flags/branches TOKEN-BY-TOKEN
-        // before the short-flag match — so combined forms (`-Dr`, `-vD`,
-        // `-fv`, `-vdf`) are caught, but hyphens inside branch names
-        // like `merged-feature` (which contain "-f") don't false-match
-        // because hyphens aren't token boundaries.
+        //
+        // Intermediate tokens between `git` and `branch`, and between
+        // `branch` and the force-flag, are constrained to NOT contain
+        // shell metacharacters (`&;|`()<>` plus backticks). That keeps
+        // the match within a single command: forms like
+        //   branch=$(git branch --show-current) && git push --force-with-lease ...
+        // can no longer span the `)` and `&&` boundary back into a
+        // `--force` flag belonging to a different command (#121).
+        //
+        // The force-flag tail uses `(?:\s|$)` instead of `\b` because
+        // `\b` treats hyphens as word boundaries, so `--force\b` falsely
+        // matched the `--force` prefix of `--force-with-lease` and
+        // `--force-if-includes` (#121).
         destructive_pattern!(
             "branch-force-delete",
-            r"(?:^|[^[:alnum:]_-])git\s+(?:\S+\s+)*branch\s+(?:\S+\s+)*(?:-[a-zA-Z]*[Df][a-zA-Z]*\b|--force\b)",
+            r"(?:^|[^[:alnum:]_-])git\s+(?:[^\s&;|`()<>]+\s+)*branch\s+(?:[^\s&;|`()<>]+\s+)*(?:-[a-zA-Z]*[Df][a-zA-Z]*(?:\s|$)|--force(?:\s|$))",
             "git branch -D/--force deletes branches without checks. Recoverable via 'git reflog'.",
             Medium,
             "git branch -D force-deletes a branch without checking if it has been merged. \
@@ -658,6 +666,41 @@ mod tests {
             pack.check("git branch -a").is_none(),
             "listing all branches must not be blocked"
         );
+
+        // Regression for #121: `--force-with-lease` and `--force-if-includes`
+        // are the safer alternatives dcg itself recommends. They must NOT
+        // false-match the `--force` alternative of branch-force-delete.
+        for cmd in [
+            "git push --force-with-lease origin main",
+            "git push --force-if-includes origin HEAD:main",
+            "git push --force-with-lease=main:abc123 origin",
+        ] {
+            assert!(
+                pack.check(cmd).is_none(),
+                "`--force-with-lease` / `--force-if-includes` must not trip branch-force-delete; cmd={cmd}"
+            );
+        }
+
+        // Regression for #121: branch-force-delete must not span shell
+        // command boundaries (`&&`, `||`, `;`, `|`, `$( )`, backticks).
+        // The motivating case was
+        //   branch=$(git branch --show-current) && git push --force-with-lease ...
+        // — `git branch` is a read-only query and `git push --force-with-lease`
+        // is a safe push, but the old regex consumed across the `)` and `&&`
+        // to match `--force` inside `--force-with-lease`.
+        for cmd in [
+            "branch=$(git branch --show-current) && git push --force-with-lease origin HEAD:main",
+            "git branch --show-current && git push --force-with-lease origin main",
+            "git branch --show-current; git push --force-with-lease origin main",
+            "git branch --show-current || git push --force-with-lease origin main",
+            "git branch --show-current | tee /tmp/branch && git push --force-with-lease",
+            "`git branch --show-current` && git push --force-with-lease",
+        ] {
+            assert!(
+                pack.check(cmd).is_none(),
+                "branch-force-delete must not span shell boundaries; cmd={cmd}"
+            );
+        }
     }
 
     #[test]

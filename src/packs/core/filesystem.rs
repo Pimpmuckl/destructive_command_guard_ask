@@ -532,6 +532,22 @@ fn parse_rm_segment(
             }
         }
 
+        // Skip trailing shell redirections (`> log`, `2>/dev/null`,
+        // `2>&1`, `&>>file`, …). These are not arguments to `rm` and
+        // must not count as paths the rm parser checks against the
+        // safe-path list (#120). Without this guard the safe-path
+        // determination silently fails on commands like
+        //   rm -rf /tmp/foo /tmp/bar 2>/dev/null
+        // because the trailing redirection token is treated as a third
+        // path, which doesn't match any rm-rf-tmp safe pattern, and the
+        // whole command ends up flagged as rm-rf-root-home.
+        if crate::normalize::starts_with_shell_redirection(text) {
+            // Mark options-ended so a later non-redirect token isn't
+            // re-interpreted as a flag, but DO NOT add to paths.
+            options_ended = true;
+            continue;
+        }
+
         options_ended = true;
         let (quote, unquoted) = strip_outer_quotes(text);
         paths.push(PathToken {
@@ -3262,6 +3278,54 @@ mod tests {
         // Outside safe dirs, general rule catches it
         assert_blocks_with_severity(&pack, "rm -rf ./build", Severity::High);
         assert_blocks_with_pattern(&pack, "rm -rf ./build", "rm-rf-general");
+    }
+
+    /// Regression for #120: trailing shell redirections must not turn a
+    /// safe `rm -rf /tmp/...` invocation into a critical "rm-rf-root-home"
+    /// flag. Previously `rm -rf /tmp/foo 2>/dev/null` was denied because
+    /// the rm parser added `2>/dev/null` to its path list, the safe-path
+    /// determination failed (it isn't a `/tmp/...` path), and the
+    /// regex-based rm-rf-root-home rule matched the leading `/` in
+    /// `/tmp/...`.
+    ///
+    /// The fix in `parse_rm_segment` skips tokens recognised by
+    /// `starts_with_shell_redirection` rather than treating them as
+    /// rm-target paths.
+    #[test]
+    fn test_rm_rf_tmp_with_trailing_redirections_is_safe() {
+        let pack = create_pack();
+        let safe_cases = [
+            "rm -rf /tmp/sigtest* 2>/dev/null",
+            "rm -rf /tmp/sigtest* /tmp/tardis-test /tmp/tardis-bench 2>/dev/null",
+            "rm -rf /tmp/foo > /tmp/log.txt",
+            "rm -rf /tmp/foo > /tmp/log.txt 2>&1",
+            "rm -rf /tmp/foo &>/dev/null",
+            "rm -rf /tmp/foo &>> /tmp/audit.log",
+            "rm -rf /var/tmp/foo 2>/dev/null",
+            "rm -r -f /tmp/foo 2>/dev/null",
+            "rm -f -r /tmp/foo 2>/dev/null",
+            "rm --recursive --force /tmp/foo 2>/dev/null",
+        ];
+        for cmd in safe_cases {
+            assert!(
+                pack.check(cmd).is_none(),
+                "rm -rf with trailing redirection on /tmp/* must not be blocked; cmd={cmd}"
+            );
+        }
+
+        // The trailing-redirection skip must not let a dangerous path
+        // sneak through. /etc still wins over the redirection.
+        let unsafe_cases = [
+            "rm -rf /etc 2>/dev/null",
+            "rm -rf /tmp/ok /etc 2>/dev/null",
+            "rm -rf / 2>/dev/null",
+        ];
+        for cmd in unsafe_cases {
+            assert!(
+                pack.check(cmd).is_some(),
+                "rm -rf targeting root/etc must still be blocked even with a trailing redirection; cmd={cmd}"
+            );
+        }
     }
 
     #[test]
