@@ -609,14 +609,13 @@ mod tests {
             "push-force mentioned inside a quoted commit message must not trigger push-force-long"
         );
         assert!(
-            pack.check(
-                "git commit -m \"docs: warn against git push -f when rebasing onto main\""
-            )
-            .is_none(),
+            pack.check("git commit -m \"docs: warn against git push -f when rebasing onto main\"")
+                .is_none(),
             "push-force mentioned inside a quoted commit message must not trigger push-force-short"
         );
         assert!(
-            pack.check("git status && echo 'avoid git push --force in CI'").is_none(),
+            pack.check("git status && echo 'avoid git push --force in CI'")
+                .is_none(),
             "push-force inside an echo following && must not span back to git push-force-long"
         );
         assert!(
