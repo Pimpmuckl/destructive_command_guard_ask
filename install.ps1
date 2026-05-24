@@ -194,7 +194,14 @@ function Configure-CodexHook {
         )
       }
     }
-    $config | ConvertTo-Json -Depth 20 | Set-Content -Path $hooksFile -Encoding UTF8
+    # Write UTF-8 without BOM: Codex's JSON parser rejects the BOM byte sequence
+    # at offset 0 ("expected value at line 1 column 1"). Use the .NET API directly
+    # because Windows PowerShell 5.1 lacks `-Encoding UTF8NoBOM` (PS 6+ only). (#125)
+    [System.IO.File]::WriteAllText(
+        $hooksFile,
+        ($config | ConvertTo-Json -Depth 20),
+        (New-Object System.Text.UTF8Encoding $false)
+    )
     return "created"
   }
 
@@ -257,7 +264,12 @@ function Configure-CodexHook {
   $newPreToolUse = @($bashEntry) + $newPreToolUse
 
   Set-ObjectPropertyValue $hooks "PreToolUse" $newPreToolUse
-  $config | ConvertTo-Json -Depth 20 | Set-Content -Path $hooksFile -Encoding UTF8
+  # UTF-8 without BOM — see comment above where this file is first created. (#125)
+  [System.IO.File]::WriteAllText(
+    $hooksFile,
+    ($config | ConvertTo-Json -Depth 20),
+    (New-Object System.Text.UTF8Encoding $false)
+  )
   "merged"
 }
 
