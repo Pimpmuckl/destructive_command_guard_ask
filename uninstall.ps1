@@ -74,6 +74,13 @@ function Get-ObjectPropertyValue {
   if ($null -eq $Object) { return $null }
   $prop = $Object.PSObject.Properties[$Name]
   if ($null -eq $prop) { return $null }
+  # PowerShell unwraps single-element arrays when they leave a function via the
+  # output stream, which silently turns a one-entry JSON array into a scalar
+  # PSCustomObject. Callers downstream then fail Test-JsonArray, and the
+  # uninstaller bails out without stripping the dcg hook from a hooks.json
+  # that has only one Bash matcher / one inner hook. Preserve array-ness with
+  # the unary comma operator.
+  if ($prop.Value -is [array]) { return ,$prop.Value }
   $prop.Value
 }
 
