@@ -1697,9 +1697,8 @@ mod tests {
         // with Claude Code, so without a turn_id they must stay
         // ClaudeCompatible rather than being mis-flipped to Codex.
         for tool in ["Bash", "bash", "launch-process"] {
-            let json = format!(
-                r#"{{"tool_name":"{tool}","tool_input":{{"command":"git status"}}}}"#
-            );
+            let json =
+                format!(r#"{{"tool_name":"{tool}","tool_input":{{"command":"git status"}}}}"#);
             let input: HookInput = serde_json::from_str(&json).unwrap();
             assert_eq!(
                 detect_protocol(&input),

