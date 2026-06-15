@@ -164,13 +164,21 @@ dcg uses a modular "pack" system to organize destructive command patterns by cat
 - Full pack ID index: `docs/packs/README.md`
 - Canonical descriptions + pattern counts: `dcg packs --verbose`
 
-### Core Packs (enabled by default)
-- `core.filesystem` - Protects against dangerous rm -rf commands outside temp directories
-- `core.git` - Protects against destructive git commands that can lose uncommitted work, rewrite history, or destroy stashes
+### Enabled by default (no config file)
 
-**Common packs enabled by default:**
-- `database.postgresql` - Protects against destructive PostgreSQL operations
-- `containers.docker` - Protects against destructive Docker operations like system prune
+With **no config file present**, dcg enables only the packs that guard against the
+most catastrophic, unrecoverable mistakes:
+
+- `core.filesystem` - Dangerous `rm -rf` outside temp directories *(always on; cannot be disabled)*
+- `core.git` - Destructive git commands that lose uncommitted work, rewrite history, or destroy stashes *(always on; cannot be disabled)*
+- `system.disk` - `mkfs`, `dd`-to-device, `fdisk`, `parted`, `mdadm`, `lvm` removal, `wipefs` *(on by default; opt out with `disabled = ["system.disk"]`)*
+
+Every other pack — including `database.postgresql` and `containers.docker` — is
+**opt-in** and is *not* active until a config file enables it. Running `dcg init`
+writes a starter `~/.config/dcg/config.toml` whose `[packs] enabled` list turns on
+`database.postgresql` and `containers.docker` as common examples, but that is a
+generated starter config, not the no-config default. Enable any pack below by adding
+it to `[packs] enabled` — see [Enable More Protection](#enable-more-protection).
 
 ### Storage Packs
 - `storage.s3` - Protects against destructive S3 operations like bucket removal, recursive deletes, and sync --delete.
