@@ -11,7 +11,24 @@ Repository: <https://github.com/Dicklesworthstone/destructive_command_guard>
 
 ---
 
-## [v0.6.0](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.6.0) -- 2026-06-24 [Release]
+## [v0.6.1](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.6.1) -- 2026-06-25 [Release]
+
+Patch release candidate for the native-Windows launch, superseding the
+unpublished `v0.6.0` tag.
+
+### Fixed
+
+- **Close an inline-script extraction under-block.** Interpreter wrapper flags
+  whose values are not simple barewords (`python -W ignore::... -c`, `node
+  --max-old-space-size 4096 -e`, `bash --rcfile /path -c`, PowerShell
+  `-Version 5.1 -Command`, and attached Perl flags like `-MFile::Spec`) are now
+  skipped correctly before extracting the dangerous inline script payload.
+- **Refresh Windows release docs.** README and `docs/windows.md` now describe
+  Windows x64 + ARM64 artifacts, the ARM64-to-x64 fallback for older releases,
+  the Windows Cursor PowerShell bridge, and the full PowerShell uninstall hook
+  coverage.
+
+## [v0.6.0](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.6.0) -- 2026-06-24 [Tag]
 
 Native Windows support, PowerShell installer automation, Windows release
 artifacts, heredoc data-sink masking for `git` stdin targets, plus a soundness
