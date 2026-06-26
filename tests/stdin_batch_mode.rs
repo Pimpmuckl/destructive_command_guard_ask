@@ -87,9 +87,12 @@ fn test_batch_processes_multiple_commands() {
 "#;
 
     let output = run_dcg_batch(input);
-    assert!(
-        output.status.success(),
-        "Batch mode should exit successfully"
+    // Any deny in the batch must make the process exit non-zero so callers can
+    // gate on the exit code (issue #148).
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Batch mode must exit 1 when any command is denied"
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -135,7 +138,8 @@ fn test_batch_maintains_order() {
 "#;
 
     let output = run_dcg_batch(input);
-    assert!(output.status.success());
+    // Denies present -> exit 1 (issue #148).
+    assert_eq!(output.status.code(), Some(1));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let results = parse_jsonl_output(&stdout);
@@ -217,17 +221,131 @@ not valid json
 
     let output = run_dcg_batch(input);
 
+    // Without --continue-on-error, the first malformed line halts processing
+    // and the process exits non-zero (EXIT_PARSE_ERROR = 4) — issue #165.
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "Malformed input without --continue-on-error should halt with exit 4"
+    );
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let results = parse_jsonl_output(&stdout);
 
-    // Should have at least the first result before failing
-    assert!(!results.is_empty());
+    // Exactly two results: the leading allow and the parse error. The third
+    // (valid) line after the error is NOT processed because we halt.
+    assert_eq!(
+        results.len(),
+        2,
+        "Processing must stop at the first malformed line"
+    );
     assert_eq!(results[0]["decision"], "allow");
+    assert_eq!(results[0]["index"], 0);
+    assert_eq!(results[1]["decision"], "error");
+    assert_eq!(results[1]["index"], 1);
+}
 
-    // The second result should be an error (parse failure)
-    if results.len() > 1 {
-        assert_eq!(results[1]["decision"], "error");
+// ============================================================================
+// Test: Blank lines are skipped entirely (no phantom indexed entries)
+// ============================================================================
+
+#[test]
+fn test_batch_skips_blank_lines() {
+    // Blank/whitespace-only LINES (not empty command strings) must be skipped
+    // entirely: they produce no output and do not consume an index (issue #154).
+    let input = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}\n\n   \n{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git reset --hard\"}}\n";
+
+    let output = run_dcg_batch(input);
+    // Contains a deny -> exit 1 (issue #148).
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let results = parse_jsonl_output(&stdout);
+
+    assert_eq!(
+        results.len(),
+        2,
+        "Blank lines must not create indexed entries"
+    );
+    assert_eq!(results[0]["decision"], "allow");
+    assert_eq!(results[0]["index"], 0);
+    assert_eq!(results[1]["decision"], "deny");
+    assert_eq!(results[1]["index"], 1, "Indices must be gap-free");
+    assert!(
+        !stdout.contains("\"skip\""),
+        "Blank lines must not emit skip entries"
+    );
+}
+
+// ============================================================================
+// Test: A single denial exits non-zero
+// ============================================================================
+
+#[test]
+fn test_batch_single_deny_exits_nonzero() {
+    let input = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git reset --hard\"}}\n";
+    let output = run_dcg_batch(input);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "A denied command must make dcg hook exit 1 (issue #148)"
+    );
+
+    // All-allow batch exits 0.
+    let allow_input = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"}}\n";
+    let allow_output = run_dcg_batch(allow_input);
+    assert_eq!(allow_output.status.code(), Some(0));
+}
+
+// ============================================================================
+// Test: `dcg hook` without --batch reads a single JSON object (issue #157)
+// ============================================================================
+
+#[test]
+fn test_hook_without_batch_reads_single_json() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let home_dir = temp.path().join("home");
+    let xdg_config_dir = temp.path().join("xdg_config");
+    std::fs::create_dir_all(&home_dir).unwrap();
+    std::fs::create_dir_all(&xdg_config_dir).unwrap();
+
+    let mut cmd = Command::new(dcg_binary());
+    cmd.env_clear()
+        .env("HOME", &home_dir)
+        .env("USERPROFILE", &home_dir)
+        .env("XDG_CONFIG_HOME", &xdg_config_dir)
+        .env("DCG_ALLOWLIST_SYSTEM_PATH", "")
+        .env("DCG_PACKS", "core.git,core.filesystem")
+        .current_dir(temp.path())
+        .arg("hook") // NOTE: no --batch
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().expect("failed to spawn dcg hook");
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin
+            .write_all(
+                b"{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git reset --hard\"}}\n",
+            )
+            .unwrap();
     }
+    let output = child.wait_with_output().expect("failed to wait for dcg");
+
+    // It must NOT print the old internal "delegating to main.rs" error.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("delegating to main.rs"),
+        "dcg hook (no --batch) must not leak the internal delegation error"
+    );
+
+    // It processes the single JSON object and denies -> exit 1.
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let results = parse_jsonl_output(&stdout);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["decision"], "deny");
+    assert_eq!(results[0]["index"], 0);
 }
 
 // ============================================================================
@@ -301,7 +419,8 @@ fn test_batch_includes_rule_metadata_for_denials() {
 "#;
 
     let output = run_dcg_batch(input);
-    assert!(output.status.success());
+    // Both commands deny -> exit 1 (issue #148).
+    assert_eq!(output.status.code(), Some(1));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let results = parse_jsonl_output(&stdout);
@@ -348,9 +467,12 @@ fn test_batch_performance_at_scale() {
     let output = run_dcg_batch(&input);
     let duration = start.elapsed();
 
-    assert!(
-        output.status.success(),
-        "Batch should complete successfully"
+    // The batch contains denials (every 10th command), so exit is non-zero
+    // (issue #148).
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Batch with denials should exit 1"
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
