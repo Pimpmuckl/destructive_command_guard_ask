@@ -4906,6 +4906,17 @@ fn detect_project_packs(dir: &std::path::Path) -> Vec<PackDetection> {
             &mut detections,
         );
     }
+    // Atmos (atmos.tools) keeps its root config in atmos.yaml/atmos.yml; the
+    // wrapper verbs (terraform deploy/clean, helmfile destroy) are guarded by
+    // the infrastructure.atmos pack.
+    if dir.join("atmos.yaml").exists() || dir.join("atmos.yml").exists() {
+        add_detection(
+            "infrastructure.atmos",
+            "atmos.yaml",
+            &mut seen_packs,
+            &mut detections,
+        );
+    }
 
     // --- CI/CD ---
     if dir.join(".github").join("workflows").is_dir() {
@@ -14867,6 +14878,20 @@ mod tests {
                 .map(|d| d.pack_id.as_str())
                 .any(|x| x == "infrastructure.terraform"),
             "Should detect terraform from main.tf"
+        );
+    }
+
+    #[test]
+    fn test_detect_project_packs_atmos() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("atmos.yaml"), "base_path: .").unwrap();
+        let detections = detect_project_packs(tmp.path());
+        assert!(
+            detections
+                .iter()
+                .map(|d| d.pack_id.as_str())
+                .any(|x| x == "infrastructure.atmos"),
+            "Should detect atmos from atmos.yaml"
         );
     }
 
