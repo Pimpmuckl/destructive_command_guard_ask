@@ -26,8 +26,8 @@ Other agent protocols keep their upstream behavior.
 Build the fork with Rust nightly:
 
 ```bash
-git clone https://github.com/Pimpmuckl/destructive_command_guard_ask.git
-cd destructive_command_guard_ask
+git clone https://github.com/Pimpmuckl/destructive_command_guard.git
+cd destructive_command_guard
 cargo build --release
 ```
 
@@ -44,7 +44,7 @@ escaped backslashes.
         "hooks": [
           {
             "type": "command",
-            "command": "C:\\Code\\destructive_command_guard_ask\\target\\release\\dcg.exe"
+            "command": "C:\\Code\\destructive_command_guard\\target\\release\\dcg.exe"
           }
         ]
       }
@@ -54,19 +54,12 @@ escaped backslashes.
 ```
 
 On Linux or macOS, use the absolute path ending in
-`/destructive_command_guard_ask/target/release/dcg` instead. Restart Codex,
+`/destructive_command_guard/target/release/dcg` instead. Restart Codex,
 open `/hooks`, and trust the hook once.
 
-To let the Codex fork's Guardian resolve `ask` decisions automatically, add this
-top-level setting to `~/.codex/config.toml`:
-
-```toml
-approvals_reviewer = "auto_review"
-```
-
-Without automatic review, Codex++ stops safely and reports that Guardian review
-is required. The upstream installers below download upstream release binaries,
-not this fork's capability-aware binary.
+In Codex++, dcg returns `ask`, so destructive hook decisions go to Guardian even
+when Codex is running with full access. In upstream Codex, which does not support
+`ask`, dcg returns `deny` and stops the command.
 
 <div align="center">
 <h3>Upstream quick install (<code>deny</code> behavior)</h3>
