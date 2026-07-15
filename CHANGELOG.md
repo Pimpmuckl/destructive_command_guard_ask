@@ -11,13 +11,67 @@ Repository: <https://github.com/Dicklesworthstone/destructive_command_guard>
 
 ---
 
+## [v0.6.8](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.6.8) -- 2026-07-15 [Release]
+
+Windows installer correctness hotfix that completes the real-host
+ConstrainedLanguage path begun in v0.6.7.
+
+### Fixed
+
+- **Make the mandatory installed-version assertion and optional `-Verify`
+  self-test work in Windows PowerShell 5.1 ConstrainedLanguage (#194).** The
+  installer now captures native `dcg --version` and `dcg test` output under a
+  narrowly scoped non-terminating error preference, restores the caller's
+  preference, and judges each probe by its documented process exit code. This
+  preserves strict error handling while preventing DCG's intentional human
+  diagnostics on stderr from being promoted to a terminating
+  `NativeCommandError` under the installer's script-wide
+  `$ErrorActionPreference = 'Stop'`.
+- Extend the Windows PowerShell 5.1 forced-ConstrainedLanguage integration test
+  with native commands that exercise successful version capture, a failing
+  version probe, and both allow/deny self-test outcomes while emitting
+  diagnostics on stderr. The regression now covers the exact stream behavior
+  that v0.6.7's function-level installer tests missed.
+- Advance the composite GitHub Action examples and its transient API-failure
+  fallback to v0.6.8 so an unavailable latest-release endpoint cannot select
+  the superseded installer.
+- Make the real Codex E2E harness explicitly trust its freshly generated,
+  hermetic DCG hook for automation. Codex 0.144.x otherwise skips untrusted
+  one-shot hook paths, which made the harness run destructive fixture commands
+  without exercising DCG even though direct protocol tests passed. The harness
+  now pins both `HOME` and `CODEX_HOME` to that generated configuration, accepts
+  hook-status markers only from Codex stderr, and aborts before issuing any
+  destructive prompt unless the initial safe-command trust handshake succeeds.
+- Refresh the scan regression golden for the six legitimate PostgreSQL and
+  Docker findings now emitted by the current default packs. The harness now
+  compares the complete normalized deterministic scan contract rather than
+  only counts and a sorted rule-ID multiset.
+
+### Dependencies
+
+- Update `toml` to 1.1.3, `toml_edit` to 0.25.13, and `toml_writer` to 1.1.2
+  for the upstream writer-overflow fix. Update the dev-only `which` dependency
+  to 8.0.5. The root lock uses the independently resolved minimal four-package
+  update and excludes PR #208's unrelated edge rebindings. The previously stale
+  fuzz lock is refreshed from its v0.4.5-era graph and aligned to the gated root
+  dependency versions so full locked fuzz metadata succeeds.
+
+### Release integrity
+
+- Rebuild and test all six binaries manually outside GitHub Actions, with
+  SHA-256 checksums, minisign signatures, signed DSR SLSA provenance, a
+  source-tree SPDX SBOM, and real installer verification on Linux, macOS, and
+  Windows PowerShell 5.1.
+
 ## [v0.6.7](https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v0.6.7) -- 2026-07-14 [Release]
 
-Security, correctness, and Windows-policy compatibility release. This closes
-the stdin-driven database-client bypass class, blocks force-refspec pushes,
-repairs project allowlists outside Git repositories, fixes two command-line
-false positives, and makes the Windows installer work under WDAC/AppLocker
-ConstrainedLanguage.
+Security and correctness release with Windows-policy compatibility groundwork.
+This closes the stdin-driven database-client bypass class, blocks force-refspec
+pushes, repairs project allowlists outside Git repositories, fixes two
+command-line false positives, and adds the checksum, signature, archive, and
+encoding primitives needed by the Windows installer under WDAC/AppLocker
+ConstrainedLanguage. Its final PowerShell 5.1 native-output captures are
+corrected in v0.6.8.
 
 ### Security
 
@@ -85,10 +139,11 @@ ConstrainedLanguage.
   The installer falls back from `Get-FileHash` to signed inbox
   `certutil.exe`, uses trusted `tar.exe` for zip inspection/extraction, emits
   UTF-8 without a BOM using primitive operations, and avoids blocked .NET
-  helpers for URL, PATH, architecture, and configuration handling. The full
-  forced-ConstrainedLanguage install path is exercised on a real Windows
-  PowerShell 5.1 machine, while the complete 15-test installer suite covers
-  both normal and constrained paths.
+  helpers for URL, PATH, architecture, and configuration handling. Real-host
+  release validation subsequently found that the final `dcg --version` capture
+  and optional `-Verify` self-test still tripped PowerShell 5.1's native-stderr
+  promotion under `$ErrorActionPreference = 'Stop'`; v0.6.8 fixes both native
+  capture paths.
 
 ### Release integrity
 
