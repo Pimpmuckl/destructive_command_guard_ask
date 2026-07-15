@@ -1194,8 +1194,23 @@ function Normalize-DcgVersionTag {
 function Get-DcgReportedVersion {
   param([string]$Path)
 
-  $output = @(& $Path --version 2>&1)
-  $status = $LASTEXITCODE
+  # Windows PowerShell 5.1 promotes any native stderr output to a
+  # NativeCommandError when the installer's script-wide preference is Stop.
+  # dcg intentionally sends its human banner to stderr even though --version
+  # succeeds and prints the machine-readable version on stdout. Capture both
+  # streams under a narrowly scoped non-terminating preference, then judge the
+  # native invocation by its exit code and restore the caller's preference.
+  $savedErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = @(& $Path --version 2>&1)
+    $status = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $savedErrorActionPreference
+  }
+  if ($null -eq $status) {
+    throw "Installed dcg did not report a native process exit code"
+  }
   if ($status -ne 0) {
     throw "Installed dcg failed --version with exit code $status"
   }
@@ -1243,8 +1258,14 @@ function Invoke-DcgInstallSelfTest {
     $PSNativeCommandUseErrorActionPreference = $false
     Push-Location $ProbeRoot
     try {
-      $allowOutput = @(& $resolvedPath test --format json 'git status' 2>&1)
-      $allowStatus = $LASTEXITCODE
+      $savedErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        $allowOutput = @(& $resolvedPath test --format json 'git status' 2>&1)
+        $allowStatus = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+      }
       $allowText = $allowOutput -join "`n"
       if ($allowStatus -ne 0 -or $allowText -notmatch '"decision"\s*:\s*"allow"') {
         throw "Self-test did not allow the safe probe (exit $allowStatus)"
@@ -1252,8 +1273,14 @@ function Invoke-DcgInstallSelfTest {
 
       # `dcg test` evaluates this string; it never executes it. Require both
       # exit 1 and structured deny output so a crash cannot masquerade as a pass.
-      $denyOutput = @(& $resolvedPath test --format json 'rm -rf /' 2>&1)
-      $denyStatus = $LASTEXITCODE
+      $savedErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        $denyOutput = @(& $resolvedPath test --format json 'rm -rf /' 2>&1)
+        $denyStatus = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+      }
       $denyText = $denyOutput -join "`n"
       if ($denyStatus -ne 1 -or $denyText -notmatch '"decision"\s*:\s*"deny"') {
         throw "Self-test did not deny the destructive probe (exit $denyStatus)"

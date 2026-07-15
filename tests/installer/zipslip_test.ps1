@@ -3,6 +3,7 @@
 # Dot-sources install.ps1 -LoadFunctionsOnly and feeds it crafted archives.
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -40,6 +41,22 @@ function New-SymlinkZip {
         $w = New-Object System.IO.StreamWriter($e.Open())
         $w.Write('target.exe'); $w.Dispose()
     } finally { $zip.Dispose(); $fs.Dispose() }
+    # ZipArchive writes a Windows "version made by" host byte even when Unix
+    # mode bits are supplied. Windows tar.exe therefore treats the fixture as a
+    # regular file unless the central-directory creator is made authentically
+    # Unix (host 3). Patch only that metadata byte in this one-entry test ZIP.
+    [byte[]]$bytes = [System.IO.File]::ReadAllBytes($path)
+    $patchedCreator = $false
+    for ($i = 0; $i -le ($bytes.Length - 6); $i++) {
+        if ($bytes[$i] -eq 0x50 -and $bytes[$i + 1] -eq 0x4B -and
+            $bytes[$i + 2] -eq 0x01 -and $bytes[$i + 3] -eq 0x02) {
+            $bytes[$i + 5] = 3
+            $patchedCreator = $true
+            break
+        }
+    }
+    if (-not $patchedCreator) { throw 'test ZIP central directory was not found' }
+    [System.IO.File]::WriteAllBytes($path, $bytes)
     $path
 }
 function ShouldThrow([string]$zip, [string]$why) {
@@ -73,8 +90,44 @@ try {
         $validZip = New-TestZip @('dcg.exe')
         $probeOut = Join-Path $tmp 'constrained-output'
         $probeScript = Join-Path $tmp 'constrained-probe.ps1'
+        $versionMock = Join-Path $tmp 'dcg-version.cmd'
+        $versionFailureMock = Join-Path $tmp 'dcg-version-failure.cmd'
+        $selfTestMock = Join-Path $tmp 'dcg-self-test.cmd'
         @'
-param([string]$InstallPath, [string]$ZipPath, [string]$OutputPath)
+@echo off
+echo 9.8.7
+echo dcg v9.8.7 diagnostic banner 1>&2
+exit /b 0
+'@ | Set-Content -LiteralPath $versionMock -Encoding ASCII
+        @'
+@echo off
+echo dcg version probe failed 1>&2
+exit /b 23
+'@ | Set-Content -LiteralPath $versionFailureMock -Encoding ASCII
+        @'
+@echo off
+if "%~4"=="git status" goto allow
+if "%~4"=="rm -rf /" goto deny
+echo unexpected self-test arguments 1>&2
+exit /b 64
+:allow
+echo {"decision":"allow"}
+echo dcg safe diagnostic banner 1>&2
+exit /b 0
+:deny
+echo {"decision":"deny"}
+echo dcg deny diagnostic banner 1>&2
+exit /b 1
+'@ | Set-Content -LiteralPath $selfTestMock -Encoding ASCII
+        @'
+param(
+    [string]$InstallPath,
+    [string]$ZipPath,
+    [string]$OutputPath,
+    [string]$VersionCommand,
+    [string]$VersionFailureCommand,
+    [string]$SelfTestCommand
+)
 $ErrorActionPreference = 'Stop'
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
 . $InstallPath -LoadFunctionsOnly
@@ -94,13 +147,37 @@ if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $by
 if (-not (Test-Sha256Token (Get-DcgFileSha256 -Path $utf8))) {
     throw 'SHA-256 fallback returned an invalid digest'
 }
+if ((Get-DcgReportedVersion -Path $VersionCommand) -cne 'v9.8.7') {
+    throw 'native stdout/stderr version capture failed under ErrorActionPreference Stop'
+}
+if ($ErrorActionPreference -cne 'Stop') {
+    throw 'Get-DcgReportedVersion did not restore ErrorActionPreference after success'
+}
+$versionFailure = $null
+try {
+    Get-DcgReportedVersion -Path $VersionFailureCommand | Out-Null
+} catch {
+    $versionFailure = $_.Exception.Message
+}
+if ($versionFailure -cne 'Installed dcg failed --version with exit code 23') {
+    throw "unexpected nonzero native exit result: $versionFailure"
+}
+if ($ErrorActionPreference -cne 'Stop') {
+    throw 'Get-DcgReportedVersion did not restore ErrorActionPreference after failure'
+}
+Invoke-DcgInstallSelfTest -Path $SelfTestCommand -ProbeRoot $OutputPath
+if ($ErrorActionPreference -cne 'Stop') {
+    throw 'Invoke-DcgInstallSelfTest did not restore ErrorActionPreference'
+}
 'ok'
 '@ | Set-Content -LiteralPath $probeScript -Encoding UTF8
         New-Item -ItemType Directory -Path $probeOut | Out-Null
         $probeResult = & $windowsPowerShell.Source -NoLogo -NoProfile -ExecutionPolicy Bypass -File $probeScript `
-            -InstallPath (Join-Path $repoRoot 'install.ps1') -ZipPath $validZip -OutputPath $probeOut
+            -InstallPath (Join-Path $repoRoot 'install.ps1') -ZipPath $validZip -OutputPath $probeOut `
+            -VersionCommand $versionMock -VersionFailureCommand $versionFailureMock `
+            -SelfTestCommand $selfTestMock
         Check (($LASTEXITCODE -eq 0) -and ($probeResult -contains 'ok')) `
-            "Windows PowerShell 5.1 ConstrainedLanguage installer primitives work end to end"
+            "Windows PowerShell 5.1 ConstrainedLanguage installer primitives and native stream capture work end to end"
     } else {
         Write-Host "  skip: Windows PowerShell 5.1 is unavailable on this host"
     }
