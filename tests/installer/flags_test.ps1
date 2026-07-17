@@ -42,6 +42,7 @@ $info2 = (Write-Info "shown-info" 6>&1 | Out-String)
 Check ($info2 -match 'shown-info') "Write-Info prints again when not -Quiet"
 
 Write-Host "Test 3: release versions are strict SemVer and canonicalized with v"
+Check ($Owner -ceq 'Pimpmuckl') "defaults to the Pimpmuckl release repository"
 Check ((Normalize-DcgVersionTag '1.2.3') -ceq 'v1.2.3') "plain SemVer gets canonical v prefix"
 Check ((Normalize-DcgVersionTag 'v1.2.3-rc.1+build.7') -ceq 'v1.2.3-rc.1+build.7') `
     "prerelease/build SemVer is preserved"
