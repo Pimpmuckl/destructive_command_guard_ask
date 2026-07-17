@@ -3,10 +3,10 @@
 # dcg installer
 #
 # One-liner install (with cache buster):
-#   curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash
+#   curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash
 #
 # Or without cache buster:
-#   curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh | bash
 #
 # Options:
 #   --version vX.Y.Z   Install specific version (default: latest)
@@ -28,7 +28,7 @@ umask 022
 shopt -s lastpipe 2>/dev/null || true
 
 VERSION="${VERSION:-}"
-OWNER="${OWNER:-Dicklesworthstone}"
+OWNER="${OWNER:-Pimpmuckl}"
 REPO="${REPO:-destructive_command_guard}"
 DEST_DEFAULT="$HOME/.local/bin"
 DEST="${DEST:-$DEST_DEFAULT}"
@@ -602,8 +602,6 @@ detect_platform() {
     # The previous gnu mapping linked against the build runner's glibc
     # and rejected any older host with `GLIBC_2.39 not found`. See #114.
     linux-x86_64) TARGET="x86_64-unknown-linux-musl" ;;
-    linux-aarch64) TARGET="aarch64-unknown-linux-gnu" ;;
-    darwin-x86_64) TARGET="x86_64-apple-darwin" ;;
     darwin-aarch64) TARGET="aarch64-apple-darwin" ;;
     *) :;;
   esac
@@ -1330,9 +1328,7 @@ if [ "$FROM_SOURCE" -eq 1 ]; then
   fi
   ok "Done. Binary at: $DEST/dcg"
   maybe_install_completions
-  exit 0
-fi
-
+else # Archive path; source builds rejoin shared agent configuration below.
 # Checksum verification (can be skipped with --no-verify for testing)
 if [ "$NO_CHECKSUM" -eq 1 ]; then
   warn "Verification skipped (--no-verify)"
@@ -1393,6 +1389,7 @@ fi
 ok "Done. Binary at: $DEST/dcg"
 maybe_install_completions
 echo ""
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Predecessor Detection & Removal
@@ -3201,7 +3198,7 @@ PYEOF
     # Brand-new config.yaml. Write a minimal, well-commented config.
     cat > "$settings_file" <<EOFSET
 # Hermes Agent configuration
-# Created by dcg installer (https://github.com/Dicklesworthstone/destructive_command_guard)
+# Created by dcg installer (https://github.com/Pimpmuckl/destructive_command_guard)
 #
 # pre_tool_call hooks fire before any tool invocation. dcg blocks
 # destructive shell commands by emitting {"decision":"block",...} on stdout.

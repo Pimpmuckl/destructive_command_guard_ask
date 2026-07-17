@@ -169,6 +169,11 @@ Claude-compatible path. Only the final hook output contract changes. Check:
 
 ## Installer And CI Surfaces
 
+The Codex++-capable fork is released independently from
+`Pimpmuckl/destructive_command_guard`. Its installer defaults and `dcg update`
+path resolve only that fork's tagged sources and release assets; the upstream
+project remains the source attribution, not the fork's distribution endpoint.
+
 Installer support is split by platform:
 
 - `install.sh:configure_codex` merges a dcg `PreToolUse` Bash hook into

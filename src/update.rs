@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const CACHE_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// GitHub repository owner.
-const REPO_OWNER: &str = "Dicklesworthstone";
+const REPO_OWNER: &str = "Pimpmuckl";
 
 /// GitHub repository name.
 const REPO_NAME: &str = "destructive_command_guard";
@@ -673,6 +673,7 @@ fn fetch_latest_version() -> Result<VersionCheckResult, VersionCheckError> {
 }
 
 fn select_latest_release(releases: &[Release]) -> Option<&Release> {
+    let mut best_fork: Option<(&Release, semver::Version)> = None;
     let mut best_stable: Option<(&Release, semver::Version)> = None;
     let mut best_any: Option<(&Release, semver::Version)> = None;
 
@@ -689,6 +690,16 @@ fn select_latest_release(releases: &[Release]) -> Option<&Release> {
             best_any = Some((release, version.clone()));
         }
 
+        // The fork release channel is intentionally namespaced; stable tags in
+        // this repository may be inherited upstream releases, not upgrades.
+        if version.pre.as_str().starts_with("codexpp.")
+            && best_fork
+                .as_ref()
+                .is_none_or(|(_, current)| version > *current)
+        {
+            best_fork = Some((release, version.clone()));
+        }
+
         if version.pre.is_empty()
             && best_stable
                 .as_ref()
@@ -698,8 +709,9 @@ fn select_latest_release(releases: &[Release]) -> Option<&Release> {
         }
     }
 
-    best_stable
+    best_fork
         .map(|(release, _)| release)
+        .or_else(|| best_stable.map(|(release, _)| release))
         .or_else(|| best_any.map(|(release, _)| release))
         .or_else(|| releases.first())
 }
@@ -944,7 +956,19 @@ mod tests {
     }
 
     #[test]
-    fn test_select_latest_release_prefers_stable() {
+    fn test_select_latest_release_prefers_fork_channel() {
+        let releases = vec![
+            make_release("0.6.8"),
+            make_release("0.6.8-codexpp.1"),
+            make_release("0.6.8-codexpp.2"),
+        ];
+
+        let selected = select_latest_release(&releases).expect("select");
+        assert_eq!(selected.version(), "0.6.8-codexpp.2");
+    }
+
+    #[test]
+    fn test_select_latest_release_prefers_stable_outside_fork_channel() {
         let releases = vec![
             make_release("2.0.0-beta.1"),
             make_release("1.9.0"),
@@ -983,11 +1007,11 @@ mod tests {
     fn test_release_url_for_tag_uses_exact_tag() {
         assert_eq!(
             release_url_for_tag("v2.1.0"),
-            "https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/v2.1.0"
+            "https://github.com/Pimpmuckl/destructive_command_guard/releases/tag/v2.1.0"
         );
         assert_eq!(
             release_url_for_tag("2.1.0"),
-            "https://github.com/Dicklesworthstone/destructive_command_guard/releases/tag/2.1.0"
+            "https://github.com/Pimpmuckl/destructive_command_guard/releases/tag/2.1.0"
         );
     }
 
@@ -995,7 +1019,7 @@ mod tests {
     fn test_release_url_for_tag_empty_uses_latest() {
         assert_eq!(
             release_url_for_tag(""),
-            "https://github.com/Dicklesworthstone/destructive_command_guard/releases/latest"
+            "https://github.com/Pimpmuckl/destructive_command_guard/releases/latest"
         );
     }
 

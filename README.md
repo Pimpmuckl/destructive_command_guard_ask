@@ -62,10 +62,10 @@ when Codex is running with full access. In upstream Codex, which does not suppor
 `ask`, dcg returns `deny` and stops the command.
 
 <div align="center">
-<h3>Upstream quick install (<code>deny</code> behavior)</h3>
+<h3>Fork quick install (<code>ask</code> for Codex++, <code>deny</code> fallback)</h3>
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 <p><em>Works on Linux, macOS, and Windows via WSL. Auto-detects your platform, downloads the right binary, and configures supported agent hooks including Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, VS Code Copilot Chat (through VS Code's Claude-hook compatibility), Cursor IDE, Hermes Agent, and Grok (xAI) (via <code>dcg install --grok</code> for a native <code>~/.grok/hooks/dcg.json</code>, or via the Claude compatibility layer automatically picked up by Grok). For native Windows, use the PowerShell installer below.</em></p>
@@ -73,7 +73,7 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_comm
 <h4>Windows (native, PowerShell)</h4>
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.ps1"))) -EasyMode -Verify
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.ps1"))) -EasyMode -Verify
 ```
 
 <p><em>Installs native <code>dcg.exe</code>, verifies the mandatory SHA256 checksum, verifies the release's long-lived minisign signature when <code>minisign</code> is available, and verifies Sigstore/cosign provenance when both <code>cosign</code> and a trusted bundle are available. It adds dcg to your User <code>PATH</code> (<code>-EasyMode</code>), runs a self-test (<code>-Verify</code>), and configures detected agent hooks for Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor IDE, and Hermes Agent. Copilot is configured at the user level under <code>%COPILOT_HOME%\hooks</code> (or <code>%USERPROFILE%\.copilot\hooks</code>) so every workspace is protected. On Windows the <code>windows.filesystem</code> and <code>windows.system</code> packs are on by default, so <code>del /s</code>, <code>rd /s</code>, <code>Remove-Item -Recurse -Force</code>, <code>format</code>, and <code>vssadmin delete shadows</code> are blocked out of the box. Pin a version with <code>-Version vX.Y.Z</code>; use <code>-RequireMinisign</code> to fail closed if the sidecar or verifier is unavailable.</em></p>
@@ -812,7 +812,7 @@ To prevent any single command from blocking indefinitely, dcg enforces an absolu
 The easiest way to install is using the install script, which downloads a prebuilt binary for your platform:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 Easy mode auto-detects your platform, downloads the right binary, verifies SHA256 checksums, configures all supported AI agent hooks (Claude Code, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor IDE, Hermes Agent, Aider), and updates your PATH. For Codex CLI 0.125.0+, the installer merges a `PreToolUse` Bash hook into `~/.codex/hooks.json`; invalid JSON or malformed existing Codex hook shapes are left unchanged and reported instead of being overwritten.
@@ -822,31 +822,31 @@ Easy mode auto-detects your platform, downloads the right binary, verifies SHA25
 Interactive mode (prompts for each step):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash
 ```
 
 Install specific version:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --version v0.6.8
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --version v0.6.8-codexpp.1
 ```
 
 Install to /usr/local/bin (system-wide, requires sudo):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | sudo bash -s -- --system
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | sudo bash -s -- --system
 ```
 
 Build from source instead of downloading binary:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --from-source
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --from-source
 ```
 
 Download/install only (skip agent hook configuration):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --no-configure
+curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh?$(date +%s)" | bash -s -- --no-configure
 ```
 
 > **Note:** If you have [gum](https://github.com/charmbracelet/gum) installed, the installer will use it for fancy terminal formatting.
@@ -890,13 +890,13 @@ repository's known-good `nightly-2026-06-06` pin; the included
 rustup toolchain install nightly-2026-06-06
 
 # Install the tagged source reproducibly
-cargo +nightly-2026-06-06 install --locked --git https://github.com/Dicklesworthstone/destructive_command_guard --tag v0.6.8 destructive_command_guard
+cargo +nightly-2026-06-06 install --locked --git https://github.com/Pimpmuckl/destructive_command_guard --tag v0.6.8-codexpp.1 destructive_command_guard
 ```
 
 ### Manual build
 
 ```bash
-git clone https://github.com/Dicklesworthstone/destructive_command_guard
+git clone https://github.com/Pimpmuckl/destructive_command_guard
 cd destructive_command_guard
 # rust-toolchain.toml automatically selects the pinned release nightly
 cargo build --release
@@ -914,7 +914,7 @@ dcg update
 Optional flags mirror the installer scripts (examples):
 
 ```bash
-dcg update --version v0.6.8
+dcg update --version v0.6.8-codexpp.1
 dcg update --system
 dcg update --verify
 ```
@@ -925,41 +925,29 @@ You can always re-run `install.sh` / `install.ps1` directly if preferred.
 
 Prebuilt binaries are available for:
 - Linux x86_64, statically linked with musl (`x86_64-unknown-linux-musl`)
-- Linux ARM64 (`aarch64-unknown-linux-gnu`)
-- macOS Intel (`x86_64-apple-darwin`)
 - macOS Apple Silicon (`aarch64-apple-darwin`)
 - Windows x64 (`x86_64-pc-windows-msvc`)
-- Windows ARM64 (`aarch64-pc-windows-msvc`)
 
-Download from [GitHub Releases](https://github.com/Dicklesworthstone/destructive_command_guard/releases) and verify the SHA256 checksum.
-Starting with v0.6.7, each manually published artifact also has an adjacent
-`.minisig`, verifiable with the embedded public key (key ID
-`36B847D11BA5A0D0`). The installers do this
-automatically when `minisign` is installed; pass `--require-minisign` on Unix or
-`-RequireMinisign` on Windows to require that verification path.
-
-```bash
-minisign -Vm dcg-<target>.<archive> \
-  -x dcg-<target>.<archive>.minisig \
-  -P 'RWTQoKUb0Ue4NsqTpPWnABCrIU0+m25zsMlbv6UcRClQ7jmRP3A7NmTB'
-```
-
-Actions-OIDC releases may also include a trusted Sigstore bundle (`.sigstore.json`)
-for provenance verification with `cosign verify-blob`. Manually built releases may
-omit that bundle; the per-artifact SHA256 checksum remains mandatory in either case.
+Download from the [Pimpmuckl fork releases](https://github.com/Pimpmuckl/destructive_command_guard/releases).
+Each target has an installer-compatible archive, an adjacent SHA-256 sidecar,
+and a Sigstore bundle.
+The installers also retain optional minisign verification for external releases
+that publish `.minisig` files. The Pimpmuckl release workflow does not publish
+those files, so do not pass `--require-minisign` or `-RequireMinisign` for fork
+releases.
 
 ## Uninstalling
 
 Remove dcg and all its hooks from AI agents:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/uninstall.sh | bash
 ```
 
 On Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/uninstall.ps1 | iex
 ```
 
 The Unix uninstaller:
@@ -1584,7 +1572,7 @@ jobs:
 
       - name: Install dcg
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh" | bash
+          curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh" | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Scan changed files
@@ -1600,7 +1588,7 @@ jobs:
 scan:
   stage: test
   script:
-    - curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/destructive_command_guard/main/install.sh" | bash
+    - curl -fsSL "https://raw.githubusercontent.com/Pimpmuckl/destructive_command_guard/main/install.sh" | bash
     - ~/.local/bin/dcg scan --git-diff origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME..HEAD --fail-on error
   rules:
     - if: $CI_MERGE_REQUEST_ID
@@ -2569,18 +2557,16 @@ Runs on every push and pull request:
 
 ### Release Workflow (`.github/workflows/dist.yml`)
 
-Triggered on version tags (`v*`):
+Triggered on version tags (`v*`) or manually for a build-only validation run:
 
-- Builds optimized binaries for 6 platforms:
+- Builds optimized binaries for 3 platforms:
   - Linux x86_64, statically linked with musl (`x86_64-unknown-linux-musl`)
-  - Linux ARM64 (`aarch64-unknown-linux-gnu`)
-  - macOS Intel (`x86_64-apple-darwin`)
   - macOS Apple Silicon (`aarch64-apple-darwin`)
   - Windows x64 (`x86_64-pc-windows-msvc`)
-  - Windows ARM64 (`aarch64-pc-windows-msvc`)
-- Creates `.tar.xz` archives (Unix) or `.zip` (Windows)
-- Generates SHA256 checksums for verification
-- Publishes to GitHub Releases with auto-generated release notes
+- Falls back to a source build in the installer on other architectures
+- Creates installer-compatible archives
+- Generates SHA256 sidecars and Sigstore bundles for each archive
+- Publishes to GitHub Releases only for an explicit version tag
 
 To create a release:
 
