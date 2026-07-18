@@ -19,6 +19,15 @@ coverage, reliability, and configuration security; adds the Snowflake CLI pack;
 makes hook deadline exhaustion explicitly fail closed; and completes the
 Windows installer work begun in v0.6.7.
 
+### Compatibility
+
+- This pre-1.0 release intentionally changes the public Rust library surface:
+  fail-open helpers and constants are removed, `Indeterminate` decisions are
+  explicit, and evaluator/simulation results carry new provenance and shell
+  dialect fields. Embedders must update exhaustive matches and struct literals.
+  No compatibility shim is retained because preserving fail-open semantics
+  would undermine the security correction in this release.
+
 ### Security
 
 - **Treat every local branch ref deletion or force-update as an approval
