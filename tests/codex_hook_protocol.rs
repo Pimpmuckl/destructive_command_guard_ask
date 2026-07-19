@@ -415,7 +415,12 @@ fn codex_true_ask_capability_selects_guardian_ask() {
     let json = outcome.stdout_json();
 
     assert_eq!(
-        json["hookSpecificOutput"]["permissionDecision"], "ask",
+        json["hookSpecificOutput"],
+        serde_json::json!({
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": "DCG flagged core.git:reset-hard: git reset --hard destroys uncommitted changes. Use 'git stash' first."
+        }),
         "{outcome}"
     );
 }

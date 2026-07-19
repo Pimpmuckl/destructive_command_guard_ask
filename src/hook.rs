@@ -1232,6 +1232,14 @@ pub fn write_denial_to(
             // Extra dcg metadata is intentionally omitted because Codex's
             // parser is stricter than Claude's.  Exit remains 0; some current
             // Codex builds classify exit 2 as hook failure and then fail open.
+            let message = if matches!(protocol, HookProtocol::CodexAsk) {
+                rule_id.as_deref().map_or_else(
+                    || format!("DCG flagged: {reason}"),
+                    |rule| format!("DCG flagged {rule}: {reason}"),
+                )
+            } else {
+                message
+            };
             let output = HookOutput {
                 hook_specific_output: HookSpecificOutput {
                     hook_event_name: "PreToolUse",
@@ -2972,10 +2980,9 @@ mod tests {
         let specific = &json["hookSpecificOutput"];
         assert_eq!(specific["hookEventName"], "PreToolUse");
         assert_eq!(specific["permissionDecision"], "ask");
-        assert!(
-            specific["permissionDecisionReason"]
-                .as_str()
-                .is_some_and(|reason| reason.contains("git reset --hard HEAD~1"))
+        assert_eq!(
+            specific["permissionDecisionReason"],
+            "DCG flagged core.git:reset-hard: destroys uncommitted changes"
         );
         assert_eq!(
             specific.as_object().map(serde_json::Map::len),
